@@ -1,111 +1,64 @@
 const std = @import("std");
+const lexer = @import("./lexer.zig");
 
-const OpKind = enum(u8) {
-    inc = '+',
-    dec = '-',
-    left = '<',
-    right = '>',
-    output = '.',
-    input = ',',
-    jump_if_zero = '[',
-    jump_if_nonzero = ']',
-};
-const Op = struct {
-    kind: OpKind,
-    operand: usize,
-};
-
-const Lexer = struct {
-    content: []const u8,
-    pos: usize = 0,
-
-    pub fn next(self: *Lexer) ?u8 {
-        while (self.pos < self.content.len and !isBfCmd(self.content[self.pos])) {
-            self.pos += 1;
+fn parseArgs(args: [][:0]u8) !struct { []const u8, bool } {
+    var program: ?[]const u8 = null;
+    var input: ?[]const u8 = null;
+    var jit = true;
+    for (args) |arg| {
+        if (program == null) {
+            program = arg;
+            continue;
         }
 
-        if (self.pos >= self.content.len) return null;
+        if (std.mem.eql(u8, arg, "--no-jit")) {
+            jit = false;
+            continue;
+        }
 
-        defer self.pos += 1;
-        return self.content[self.pos];
+        input = arg;
     }
 
-    fn isBfCmd(char: u8) bool {
-        return std.mem.containsAtLeastScalar(u8, "+-<>,.[]", 1, char);
+    if (input == null) {
+        return error.InputRequired;
     }
-};
+
+    return .{ input.?, jit };
+}
 
 pub fn main() !u8 {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var args = try std.process.argsWithAllocator(allocator);
-    defer args.deinit();
-
-    const program = args.next().?;
-    const input = args.next();
-    if (input == null) {
-        std.log.err("usage: {s} <input.bf>", .{program});
-        std.log.err("no input is provided", .{});
-        return 1;
-    }
-
-    const content = try std.fs.cwd().readFileAlloc(allocator, input.?, 1024 * 1024);
-
-    var ops = std.ArrayList(Op).init(allocator);
-    defer ops.deinit();
-    var stack = std.ArrayList(usize).init(allocator);
-    defer stack.deinit();
-
-    // Tokenization
-    var lexer = Lexer{ .content = content };
-    var char = lexer.next();
-    while (char != null) {
-        switch (char.?) {
-            '+', '-', '<', '>', '.', ',' => {
-                var count: usize = 1;
-                var next_char_in_streak = lexer.next();
-                while (next_char_in_streak == char.?) : (next_char_in_streak = lexer.next()) {
-                    count += 1;
-                }
-                try ops.append(Op{ .kind = @enumFromInt(char.?), .operand = count });
-                char = next_char_in_streak;
-            },
-            '[' => {
-                const addr: usize = ops.items.len;
-                try ops.append(Op{ .kind = @enumFromInt(char.?), .operand = addr });
-                try stack.append(addr);
-
-                char = lexer.next();
-            },
-            ']' => {
-                if (stack.items.len == 0) {
-                    std.log.err("{s} [{d}] unbalanced loop\n", .{ input.?, lexer.pos });
-                    return 1;
-                }
-
-                const addr: usize = stack.pop().?;
-                try ops.append(Op{ .kind = @enumFromInt(char.?), .operand = addr + 1 });
-                ops.items[addr].operand = ops.items.len;
-
-                char = lexer.next();
-            },
-            else => continue,
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+    const input, const jit = parseArgs(args) catch |err| {
+        std.log.err("usage: bfjit [--no-jit] <input.bf>", .{});
+        switch (err) {
+            error.InputRequired => std.log.err("no input is provided", .{}),
         }
+        return 1;
+    };
+
+    const content = try std.fs.cwd().readFileAlloc(allocator, input, 1024 * 1024);
+
+    const ops = lexer.tokenize(allocator, content) catch {
+        return 1;
+    };
+
+    std.log.info("JIT: {s}", .{if (jit) "on" else "off"});
+    if (jit) {
+        var jitted = try jitCompile(allocator, ops);
+        defer std.posix.munmap(jitted.machine_code);
+
+        const memory = try allocator.alloc(u8, 10 * 1000 * 1000);
+        defer allocator.free(memory);
+        @memset(memory, 0);
+        jitted.run(memory.ptr);
+    } else {
+        try interpret(allocator, ops);
     }
-
-    // Interpretation
-    // try interpret(allocator, ops.items);
-
-    // Compilation
-    var jitted = try jitCompile(allocator, ops.items);
-    defer std.posix.munmap(jitted.machine_code);
-
-    const memory = try allocator.alloc(u8, 10 * 1000 * 1000);
-    defer allocator.free(memory);
-    @memset(memory, 0);
-    jitted.run(memory.ptr);
 
     return 0;
 }
@@ -125,7 +78,7 @@ const JittedCode = struct {
     }
 };
 
-fn jitCompile(allocator: std.mem.Allocator, ops: []Op) !JittedCode {
+fn jitCompile(allocator: std.mem.Allocator, ops: []lexer.Op) !JittedCode {
     var code = std.ArrayList(u8).init(allocator);
     defer code.deinit();
     var backpatches = std.ArrayList(Backpatch).init(allocator);
@@ -237,7 +190,7 @@ fn jitCompile(allocator: std.mem.Allocator, ops: []Op) !JittedCode {
     return JittedCode{ .machine_code = jitted };
 }
 
-fn interpret(allocator: std.mem.Allocator, ops: []Op) !void {
+fn interpret(allocator: std.mem.Allocator, ops: []lexer.Op) !void {
     var memory = std.ArrayList(u8).init(allocator);
     defer memory.deinit();
     var head: usize = 0;
@@ -286,6 +239,9 @@ fn interpret(allocator: std.mem.Allocator, ops: []Op) !void {
                 ip += 1;
             },
             .jump_if_zero => {
+                if (memory.items.len == 0) {
+                    try memory.append(0);
+                }
                 if (memory.items[head] == 0) {
                     ip = op.operand;
                 } else {
@@ -293,6 +249,9 @@ fn interpret(allocator: std.mem.Allocator, ops: []Op) !void {
                 }
             },
             .jump_if_nonzero => {
+                if (memory.items.len == 0) {
+                    try memory.append(0);
+                }
                 if (memory.items[head] != 0) {
                     ip = op.operand;
                 } else {

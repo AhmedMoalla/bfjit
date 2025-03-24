@@ -13,18 +13,18 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "runbin",
-            "program": "${workspaceFolder}/runbin",
-            "args": ["hello.bin"],
+            "name": "bfjit JIT:on",
+            "program": "${workspaceFolder}/zig-out/bin/bfjit",
+            "args": ["./examples/hello.bf"],
             "cwd": "${workspaceFolder}",
             "console": "internalConsole"
         },
         {
             "type": "lldb",
             "request": "launch",
-            "name": "bfjit",
+            "name": "bfjit JIT:off",
             "program": "${workspaceFolder}/zig-out/bin/bfjit",
-            "args": ["hello.bf"],
+            "args": ["--no-jit", "./examples/hello.bf"],
             "cwd": "${workspaceFolder}",
             "console": "internalConsole"
         }
