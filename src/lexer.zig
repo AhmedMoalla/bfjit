@@ -35,7 +35,9 @@ const Lexer = struct {
     }
 };
 
-pub fn tokenize(allocator: std.mem.Allocator, content: []const u8) ![]Op {
+pub const LexerError = error{UnbalancedLoop} || ValidationError || std.mem.Allocator.Error;
+
+pub fn tokenize(allocator: std.mem.Allocator, content: []const u8) LexerError![]Op {
     var ops = std.ArrayList(Op).init(allocator);
     defer ops.deinit();
     var stack = std.ArrayList(usize).init(allocator);
@@ -63,8 +65,8 @@ pub fn tokenize(allocator: std.mem.Allocator, content: []const u8) ![]Op {
             },
             ']' => {
                 if (stack.items.len == 0) {
-                    std.log.err("[{d}] unbalanced loop\n", .{lexer.pos});
-                    return error.UnbalancedLoop;
+                    std.log.err("Op (]) at position {d} is unbalanced (no matching '[' found)", .{lexer.pos});
+                    return LexerError.UnbalancedLoop;
                 }
 
                 const addr: usize = stack.pop().?;
