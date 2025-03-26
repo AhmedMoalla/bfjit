@@ -6,6 +6,7 @@ pub fn interpret(allocator: std.mem.Allocator, ops: []lexer.Op) !void {
     defer memory.deinit();
     var head: usize = 0;
     var ip: usize = 0;
+    const stdin = std.io.getStdIn().reader();
 
     while (ip < ops.len) {
         const op = ops[ip];
@@ -39,7 +40,23 @@ pub fn interpret(allocator: std.mem.Allocator, ops: []lexer.Op) !void {
                 }
                 ip += 1;
             },
-            .input => unreachable,
+            .input => {
+                while (head >= memory.items.len) {
+                    try memory.append(0);
+                }
+
+                for (0..op.operand) |_| {
+                    const byte = stdin.readByte() catch |err| {
+                        switch (err) {
+                            error.EndOfStream => {},
+                            else => std.log.err("error occurred while reading from stdin {s}", .{@errorName(err)}),
+                        }
+                        continue;
+                    };
+                    memory.items[head] = byte;
+                }
+                ip += 1;
+            },
             .output => {
                 if (head < memory.items.len) {
                     for (0..op.operand) |_| {
