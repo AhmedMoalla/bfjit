@@ -21,11 +21,17 @@ pub fn main() !u8 {
 
     const content = try std.fs.cwd().readFileAlloc(allocator, input, 1024 * 1024);
 
-    const ops = lexer.tokenize(allocator, content) catch return 1;
+    const ops = lexer.tokenize(allocator, content) catch |err| {
+        std.log.err("error occured in tokenizer: {s}\n", .{@errorName(err)});
+        return 1;
+    };
 
     std.log.info("JIT: {s}", .{if (do_jit) "on" else "off"});
     if (do_jit) {
-        var jitted = try jit.compile(allocator, ops);
+        var jitted = jit.compile(allocator, ops) catch |err| {
+            std.log.err("error occured in JIT compiler: {s}\n", .{@errorName(err)});
+            return 1;
+        };
         defer jitted.deinit();
 
         const memory = try allocator.alloc(u8, 10 * 1000 * 1000);
@@ -34,7 +40,10 @@ pub fn main() !u8 {
 
         jitted.run(memory.ptr);
     } else {
-        interpreter.interpret(allocator, ops) catch return 1;
+        interpreter.interpret(allocator, ops) catch |err| {
+            std.log.err("error occured in interpreter: {s}\n", .{@errorName(err)});
+            return 1;
+        };
     }
 
     return 0;
