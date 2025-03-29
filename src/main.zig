@@ -1,8 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const lexer = @import("./lexer.zig");
-const interpreter = @import("./interpreter.zig");
-const jit = @import("./jit.zig");
+const lexer = @import("lexer.zig");
+const interpreter = @import("interpreter.zig");
+const jit = @import("jit.zig");
 
 pub fn main() !u8 {
     if (builtin.os.tag != .linux or builtin.cpu.arch != .x86_64) {
@@ -78,4 +78,9 @@ fn parseArgs(args: [][:0]u8) !struct { []const u8, bool } {
     }
 
     return .{ input.?, do_jit };
+}
+
+test {
+    _ = @import("lexer.zig");
+    _ = @import("interpreter.zig");
 }

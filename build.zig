@@ -14,7 +14,12 @@ pub fn build(b: *std.Build) void {
         return;
     }
 
-    const exe_mod = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize, .single_threaded = true });
+    const exe_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .single_threaded = true,
+    });
 
     const exe = b.addExecutable(.{
         .name = "bfjit",

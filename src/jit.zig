@@ -1,11 +1,5 @@
 const std = @import("std");
-const lexer = @import("./lexer.zig");
-
-const Backpatch = struct {
-    operand_byte_addr: usize,
-    src_byte_addr: usize,
-    dst_op_index: usize,
-};
+const lexer = @import("lexer.zig");
 
 pub const JittedCode = struct {
     machine_code: []align(std.heap.page_size_min) u8,
@@ -123,3 +117,5 @@ pub fn compile(allocator: std.mem.Allocator, ops: []lexer.Op) !JittedCode {
     try std.posix.mprotect(jitted, std.posix.PROT.READ | std.posix.PROT.EXEC);
     return JittedCode{ .machine_code = jitted };
 }
+
+test compile {}

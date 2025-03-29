@@ -20,4 +20,4 @@ $ ./zig-out/bin/bfjit --no-jit examples/hello.bf
 - [ ] Run examples from build system (e.g. `zig build example hello`)
 - [ ] Write tests to compare outputs with the outputs of this interpreter https://brainfuck.org/bcci.c
 - [ ] Compile brainfuck programs into executables
-- [ ] Optimize commons patterns (e.g. `[-]` sets the current cell to 0 by looping which can be reduced to a single instruction)
+- [ ] Optimize common patterns (e.g. `[-]` sets the current cell to 0 by looping which can be reduced to a single instruction)

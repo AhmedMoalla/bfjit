@@ -1,5 +1,5 @@
 const std = @import("std");
-const lexer = @import("./lexer.zig");
+const lexer = @import("lexer.zig");
 
 pub fn interpret(allocator: std.mem.Allocator, ops: []lexer.Op) !void {
     var memory = std.ArrayList(u8).init(allocator);
@@ -89,3 +89,5 @@ pub fn interpret(allocator: std.mem.Allocator, ops: []lexer.Op) !void {
         }
     }
 }
+
+test interpret {}
