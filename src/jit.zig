@@ -24,29 +24,20 @@ pub fn compile(allocator: std.mem.Allocator, ops: []lexer.Op) !JittedCode {
 
     for (ops) |op| {
         try addresses.append(code.items.len);
-        switch (op.kind) {
-            .inc => {
-                if (op.operand > 255) {
-                    return error.OperandTooBig;
-                }
-                try code.appendSlice(&[_]u8{ 0x80, 0x07, @intCast(op.operand & 0xFF) }); // add byte[rdi], operand
-            },
-            .dec => {
-                if (op.operand > 255) {
-                    return error.OperandTooBig;
-                }
-                try code.appendSlice(&[_]u8{ 0x80, 0x2f, @intCast(op.operand & 0xFF) }); // sub byte[rdi], operand
-            },
-            .left => {
+        switch (op) {
+            .set_zero => try code.appendSlice(&[_]u8{ 0xc6, 0x07, 0x00 }), // mov byte [rdi], 0
+            .inc => |count| try code.appendSlice(&[_]u8{ 0x80, 0x07, @intCast(count & 0xFF) }), // add byte[rdi], operand
+            .dec => |count| try code.appendSlice(&[_]u8{ 0x80, 0x2f, @intCast(count & 0xFF) }), // sub byte[rdi], operand
+            .left => |count| {
                 try code.appendSlice(&[_]u8{ 0x48, 0x81, 0xef }); // sub rdi,
-                try code.appendSlice(std.mem.sliceAsBytes(&[_]u32{@intCast(op.operand)})); // operand
+                try code.appendSlice(std.mem.sliceAsBytes(&[_]u32{@intCast(count)})); // operand
             },
-            .right => {
+            .right => |count| {
                 try code.appendSlice(&[_]u8{ 0x48, 0x81, 0xc7 }); // add rdi,
-                try code.appendSlice(std.mem.sliceAsBytes(&[_]u32{@intCast(op.operand)})); // operand
+                try code.appendSlice(std.mem.sliceAsBytes(&[_]u32{@intCast(count)})); // operand
             },
-            .output => {
-                for (0..op.operand) |_| {
+            .output => |count| {
+                for (0..count) |_| {
                     try code.appendSlice(&[_]u8{
                         0x57, // push rdi
                         0x48, 0xc7, 0xc0, 0x01, 0x00, 0x00, 0x00, // mov rax, 1
@@ -58,8 +49,8 @@ pub fn compile(allocator: std.mem.Allocator, ops: []lexer.Op) !JittedCode {
                     });
                 }
             },
-            .input => {
-                for (0..op.operand) |_| {
+            .input => |count| {
+                for (0..count) |_| {
                     try code.appendSlice(&[_]u8{
                         0x57, // push rdi
                         0x48, 0xc7, 0xc0, 0x0, 0x0, 0x0, 0x0, // mov rax, 0

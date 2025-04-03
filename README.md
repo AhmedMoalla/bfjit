@@ -1,6 +1,6 @@
 # JIT Compiler for Brainfuck
 
-Ported from https://github.com/tsoding/bfjit
+Ported from https://github.com/tsoding/bfjit for the purpose of learning Zig
 
 ## Quick Start
 ```console
@@ -16,8 +16,4 @@ $ ./zig-out/bin/bfjit --no-jit examples/hello.bf
 ```
 
 ## TODO
-- [ ] Add more examples from https://brainfuck.org/
-- [ ] Run examples from build system (e.g. `zig build example hello`)
-- [ ] Write tests to compare outputs with the outputs of this interpreter https://brainfuck.org/bcci.c
 - [ ] Compile brainfuck programs into executables
-- [ ] Optimize common patterns (e.g. `[-]` sets the current cell to 0 by looping which can be reduced to a single instruction)

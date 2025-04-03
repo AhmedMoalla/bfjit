@@ -1,52 +1,59 @@
 const std = @import("std");
+
 const lexer = @import("lexer.zig");
 
-pub fn interpret(allocator: std.mem.Allocator, ops: []lexer.Op) !void {
+pub fn interpret(allocator: std.mem.Allocator, ops: []lexer.Op, in: std.io.AnyReader, out: std.io.AnyWriter) !void {
     var memory = std.ArrayList(u8).init(allocator);
     defer memory.deinit();
     var head: usize = 0;
     var ip: usize = 0;
-    const stdin = std.io.getStdIn().reader();
 
     while (ip < ops.len) {
         const op = ops[ip];
-        switch (op.kind) {
-            .inc => {
-                while (head >= memory.items.len) {
-                    try memory.append(0);
+        switch (op) {
+            .set_zero => {
+                if (head >= memory.items.len) {
+                    try memory.appendNTimes(0, head - memory.items.len + 1);
                 }
-                memory.items[head] += @intCast(op.operand);
+                memory.items[head] = 0;
                 ip += 1;
             },
-            .dec => {
-                while (head >= memory.items.len) {
-                    try memory.append(0);
+            .inc => |count| {
+                if (head >= memory.items.len) {
+                    try memory.appendNTimes(0, head - memory.items.len + 1);
                 }
-                memory.items[head] -= @intCast(op.operand);
+                memory.items[head] = @addWithOverflow(memory.items[head], count)[0];
                 ip += 1;
             },
-            .left => {
-                if (ip < op.operand) {
-                    std.log.err("memory underflow at instruction: {d}", .{ip});
+            .dec => |count| {
+                if (head >= memory.items.len) {
+                    try memory.appendNTimes(0, head - memory.items.len + 1);
+                }
+                memory.items[head] = @subWithOverflow(memory.items[head], count)[0];
+                ip += 1;
+            },
+            .left => |count| {
+                if (head < count) {
+                    std.log.err("memory underflow at instruction: {d} (count: {d})", .{ ip, count });
                     return error.MemoryUnderflow;
                 }
-                head -= op.operand;
+                head -= count;
                 ip += 1;
             },
-            .right => {
-                head += op.operand;
-                while (head >= memory.items.len) {
-                    try memory.append(0);
+            .right => |count| {
+                head += count;
+                if (head >= memory.items.len) {
+                    try memory.appendNTimes(0, head - memory.items.len + 1);
                 }
                 ip += 1;
             },
-            .input => {
-                while (head >= memory.items.len) {
-                    try memory.append(0);
+            .input => |count| {
+                if (head >= memory.items.len) {
+                    try memory.appendNTimes(0, head - memory.items.len + 1);
                 }
 
-                for (0..op.operand) |_| {
-                    const byte = stdin.readByte() catch |err| {
+                for (0..count) |_| {
+                    const byte = in.readByte() catch |err| {
                         switch (err) {
                             error.EndOfStream => {},
                             else => std.log.err("error occurred while reading from stdin {s}", .{@errorName(err)}),
@@ -57,31 +64,31 @@ pub fn interpret(allocator: std.mem.Allocator, ops: []lexer.Op) !void {
                 }
                 ip += 1;
             },
-            .output => {
+            .output => |count| {
                 if (head < memory.items.len) {
-                    for (0..op.operand) |_| {
-                        std.debug.print("{c}", .{memory.items[head]});
+                    for (0..count) |_| {
+                        try out.print("{c}", .{memory.items[head]});
                     }
                 }
 
                 ip += 1;
             },
-            .jump_if_zero => {
+            .jump_if_zero => |addr| {
                 if (memory.items.len == 0) {
                     try memory.append(0);
                 }
                 if (memory.items[head] == 0) {
-                    ip = op.operand;
+                    ip = addr;
                 } else {
                     ip += 1;
                 }
             },
-            .jump_if_nonzero => {
+            .jump_if_nonzero => |addr| {
                 if (memory.items.len == 0) {
                     try memory.append(0);
                 }
                 if (memory.items[head] != 0) {
-                    ip = op.operand;
+                    ip = addr;
                 } else {
                     ip += 1;
                 }
@@ -90,4 +97,36 @@ pub fn interpret(allocator: std.mem.Allocator, ops: []lexer.Op) !void {
     }
 }
 
-test interpret {}
+test interpret {
+    const allocator = std.testing.allocator;
+
+    var testcases = try @import("tests/TestCases.zig").init(allocator);
+    defer testcases.deinit();
+
+    var failureCount: usize = 0;
+    for (testcases.cases) |case| {
+        std.debug.print("Case '{s}': ", .{case.name});
+        const ops = try lexer.tokenize(allocator, case.bf);
+        defer allocator.free(ops);
+
+        var out = std.ArrayList(u8).init(allocator);
+        defer out.deinit();
+
+        var in = std.io.fixedBufferStream(case.in);
+
+        interpret(allocator, ops, in.reader().any(), out.writer().any()) catch |err| {
+            std.debug.print("FAILURE => {s}\n", .{@errorName(err)});
+            failureCount += 1;
+            continue;
+        };
+
+        if (!std.mem.eql(u8, case.expected, out.items)) {
+            std.debug.print("FAILURE\n", .{});
+            failureCount += 1;
+        } else {
+            std.debug.print("SUCCESS\n", .{});
+        }
+    }
+
+    try std.testing.expectEqual(0, failureCount);
+}
