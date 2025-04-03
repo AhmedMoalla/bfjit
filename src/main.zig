@@ -2,14 +2,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const lexer = @import("lexer.zig");
 const interpreter = @import("interpreter.zig");
-const jit = @import("jit.zig");
+const jit = @import("jit/compiler.zig");
 
 pub fn main() !u8 {
-    if (builtin.os.tag != .linux or builtin.cpu.arch != .x86_64) {
-        std.debug.print("Only x86_64-linux is supported.\n", .{});
-        return;
-    }
-
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -31,7 +26,6 @@ pub fn main() !u8 {
         std.log.err("error occured in tokenizer: {s}\n", .{@errorName(err)});
         return 1;
     };
-    lexer.printTokens(ops);
 
     std.log.info("JIT: {s}", .{if (do_jit) "on" else "off"});
     if (do_jit) {
