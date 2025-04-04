@@ -80,4 +80,5 @@ fn parseArgs(args: [][:0]u8) !struct { []const u8, bool } {
 test {
     _ = @import("lexer.zig");
     _ = @import("interpreter.zig");
+    _ = @import("jit/compiler.zig");
 }

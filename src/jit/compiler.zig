@@ -1,5 +1,8 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const lexer = @import("../lexer.zig");
+
+const log = @import("../logger.zig").scoped(.jit);
 
 pub const JittedCode = struct {
     machine_code: []align(std.heap.page_size_min) u8,
@@ -14,139 +17,31 @@ pub const JittedCode = struct {
     }
 };
 
-fn mapToAssembly(op: lexer.Op) []u8 {
-    return switch (op) {
-        .set_zero => &[_]u8{ 0xc6, 0x07, 0x00 }, // mov byte [rdi], 0
-        .inc => |count| &[_]u8{ 0x80, 0x07, @intCast(count & 0xFF) }, // add byte[rdi], operand
-        .dec => |count| &[_]u8{ 0x80, 0x2f, @intCast(count & 0xFF) }, // sub byte[rdi], operand
-        .left => |count| {
-            const sub_rdi = &[_]u8{ 0x48, 0x81, 0xef }; // sub rdi,
-            try code.appendSlice(std.mem.sliceAsBytes(&[_]u32{@intCast(count)})); // operand
-        },
-        .right => |count| {
-            try code.appendSlice(&[_]u8{ 0x48, 0x81, 0xc7 }); // add rdi,
-            try code.appendSlice(std.mem.sliceAsBytes(&[_]u32{@intCast(count)})); // operand
-        },
-        .output => |count| {
-            for (0..count) |_| {
-                try code.appendSlice(&[_]u8{
-                    0x57, // push rdi
-                    0x48, 0xc7, 0xc0, 0x01, 0x00, 0x00, 0x00, // mov rax, 1
-                    0x48, 0x89, 0xfe, // mov rsi, rdi
-                    0x48, 0xc7, 0xc7, 0x01, 0x00, 0x00, 0x00, // mov rdi, 1
-                    0x48, 0xc7, 0xc2, 0x01, 0x00, 0x00, 0x00, // mov rdx, 1
-                    0x0f, 0x05, // syscall
-                    0x5f, // pop rdi
-                });
-            }
-        },
-        .input => |count| {
-            for (0..count) |_| {
-                try code.appendSlice(&[_]u8{
-                    0x57, // push rdi
-                    0x48, 0xc7, 0xc0, 0x0, 0x0, 0x0, 0x0, // mov rax, 0
-                    0x48, 0x89, 0xfe, // mov rsi, rdi
-                    0x48, 0xc7, 0xc7, 0x00, 0x0, 0x0, 0x0, // mov rdi, 0
-                    0x48, 0xc7, 0xc2, 0x01, 0x0, 0x0, 0x0, // mov rdx, 1
-                    0x0f, 0x05, // syscall
-                    0x5f, // pop rdi
-                });
-            }
-        },
-        .jump_if_zero => {
-            try code.appendSlice(&[_]u8{
-                0x8a, 0x07, // mov al, byte [rdi]
-                0x84, 0xc0, // test al, al
-                0x0f, 0x84, // jz
-                0x0,  0x0,
-                0x0, 0x0, // 4 bytes address when we reach ']'
-            });
-            try jump_tbl.append(code.items.len);
-        },
-        .jump_if_nonzero => {
-            try code.appendSlice(&[_]u8{
-                0x8a, 0x07, // mov al, byte [rdi]
-                0x84, 0xc0, // test al, al
-                0x0f, 0x85, // jnz
-                0x0, 0x0, 0x0, 0x0, // 4 bytes address filled from jumb_tbl
-            });
-
-            const left = jump_tbl.pop().?;
-            const right = code.items.len;
-            const offset: i32 = @intCast(right - left);
-
-            @memcpy(code.items[left - 4 .. left], &std.mem.toBytes(offset));
-            @memcpy(code.items[right - 4 .. right], &std.mem.toBytes(-offset));
-        },
-    };
-}
+const inner = switch (builtin.cpu.arch) {
+    .x86_64 => @import("x86_64.zig"),
+    else => |arch| struct {
+        pub const return_instruction = 0;
+        pub fn compileOp(_: std.mem.Allocator, _: lexer.Op) ![]u8 {
+            log.err(@tagName(arch) ++ " architecture is unsupported by JIT compiler.", .{});
+            std.process.exit(1);
+        }
+    },
+};
 
 pub fn compile(allocator: std.mem.Allocator, ops: []lexer.Op) !JittedCode {
     var code = std.ArrayList(u8).init(allocator);
     defer code.deinit();
-    var addresses = std.ArrayList(usize).init(allocator);
-    defer addresses.deinit();
     var jump_tbl = std.ArrayList(usize).init(allocator);
     defer jump_tbl.deinit();
 
     for (ops) |op| {
-        try addresses.append(code.items.len);
-        switch (op) {
-            .set_zero => try code.appendSlice(&[_]u8{ 0xc6, 0x07, 0x00 }), // mov byte [rdi], 0
-            .inc => |count| try code.appendSlice(&[_]u8{ 0x80, 0x07, @intCast(count & 0xFF) }), // add byte[rdi], operand
-            .dec => |count| try code.appendSlice(&[_]u8{ 0x80, 0x2f, @intCast(count & 0xFF) }), // sub byte[rdi], operand
-            .left => |count| {
-                try code.appendSlice(&[_]u8{ 0x48, 0x81, 0xef }); // sub rdi,
-                try code.appendSlice(std.mem.sliceAsBytes(&[_]u32{@intCast(count)})); // operand
-            },
-            .right => |count| {
-                try code.appendSlice(&[_]u8{ 0x48, 0x81, 0xc7 }); // add rdi,
-                try code.appendSlice(std.mem.sliceAsBytes(&[_]u32{@intCast(count)})); // operand
-            },
-            .output => |count| {
-                for (0..count) |_| {
-                    try code.appendSlice(&[_]u8{
-                        0x57, // push rdi
-                        0x48, 0xc7, 0xc0, 0x01, 0x00, 0x00, 0x00, // mov rax, 1
-                        0x48, 0x89, 0xfe, // mov rsi, rdi
-                        0x48, 0xc7, 0xc7, 0x01, 0x00, 0x00, 0x00, // mov rdi, 1
-                        0x48, 0xc7, 0xc2, 0x01, 0x00, 0x00, 0x00, // mov rdx, 1
-                        0x0f, 0x05, // syscall
-                        0x5f, // pop rdi
-                    });
-                }
-            },
-            .input => |count| {
-                for (0..count) |_| {
-                    try code.appendSlice(&[_]u8{
-                        0x57, // push rdi
-                        0x48, 0xc7, 0xc0, 0x0, 0x0, 0x0, 0x0, // mov rax, 0
-                        0x48, 0x89, 0xfe, // mov rsi, rdi
-                        0x48, 0xc7, 0xc7, 0x00, 0x0, 0x0, 0x0, // mov rdi, 0
-                        0x48, 0xc7, 0xc2, 0x01, 0x0, 0x0, 0x0, // mov rdx, 1
-                        0x0f, 0x05, // syscall
-                        0x5f, // pop rdi
-                    });
-                }
-            },
-            .jump_if_zero => {
-                try code.appendSlice(&[_]u8{
-                    0x8a, 0x07, // mov al, byte [rdi]
-                    0x84, 0xc0, // test al, al
-                    0x0f, 0x84, // jz
-                    0x0,  0x0,
-                    0x0, 0x0, // 4 bytes address when we reach ']'
-                });
-                try jump_tbl.append(code.items.len);
-            },
-            .jump_if_nonzero => {
-                try code.appendSlice(&[_]u8{
-                    0x8a, 0x07, // mov al, byte [rdi]
-                    0x84, 0xc0, // test al, al
-                    0x0f, 0x85, // jnz
-                    0x0, 0x0, 0x0, 0x0, // 4 bytes address filled from jumb_tbl
-                });
+        const op_code = try inner.compileOp(allocator, op);
+        defer allocator.free(op_code);
+        try code.appendSlice(op_code);
 
+        switch (op) {
+            .jump_if_zero => try jump_tbl.append(code.items.len),
+            .jump_if_nonzero => {
                 const left = jump_tbl.pop().?;
                 const right = code.items.len;
                 const offset: i32 = @intCast(right - left);
@@ -154,12 +49,11 @@ pub fn compile(allocator: std.mem.Allocator, ops: []lexer.Op) !JittedCode {
                 @memcpy(code.items[left - 4 .. left], &std.mem.toBytes(offset));
                 @memcpy(code.items[right - 4 .. right], &std.mem.toBytes(-offset));
             },
+            else => {},
         }
     }
 
-    try addresses.append(code.items.len);
-
-    try code.append(0xC3); // ret
+    try code.append(inner.return_instruction);
 
     const content = code.items;
     const jitted = try std.posix.mmap(
