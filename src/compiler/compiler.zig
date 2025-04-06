@@ -6,8 +6,9 @@ const log = @import("../logger.zig").scoped(.compiler);
 
 const inner = switch (builtin.cpu.arch) {
     .x86_64 => @import("x86_64.zig"),
+    .aarch64 => @import("aarch64.zig"),
     else => |arch| struct {
-        pub const return_instruction = 0;
+        pub const return_instruction = &[_]u8{};
         pub fn compileOp(_: std.mem.Allocator, _: lexer.Op) ![]u8 {
             log.err(@tagName(arch) ++ " architecture is unsupported by compiler.", .{});
             std.process.exit(1);
@@ -40,7 +41,7 @@ pub fn compile(allocator: std.mem.Allocator, ops: []lexer.Op) ![]u8 {
         }
     }
 
-    try code.append(inner.return_instruction);
+    try code.appendSlice(inner.return_instruction);
     return code.toOwnedSlice();
 }
 

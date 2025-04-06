@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const lexer = @import("lexer.zig");
 const compiler = @import("compiler/compiler.zig");
 
@@ -11,12 +12,18 @@ pub fn compile(allocator: std.mem.Allocator, ops: []lexer.Op) !JittedCode {
 pub const JittedCode = struct {
     machine_code: []align(std.heap.page_size_min) u8,
 
+    // https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.cs.allow-jit
+    const mmap_flags: std.posix.MAP = if (builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)
+        .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .JIT = true }
+    else
+        .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
+
     pub fn init(code: []u8) !JittedCode {
         const jitted = try std.posix.mmap(
             null,
             code.len,
             std.posix.PROT.READ | std.posix.PROT.WRITE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+            mmap_flags,
             -1,
             0,
         );
