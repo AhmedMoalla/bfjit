@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const lexer = @import("lexer.zig");
 const interpreter = @import("interpreter.zig");
-const compiler = @import("compiler.zig");
+const jit = @import("jit.zig");
 
 pub fn main() !u8 {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -29,7 +29,7 @@ pub fn main() !u8 {
 
     std.log.info("JIT: {s}", .{if (do_jit) "on" else "off"});
     if (do_jit) {
-        var jitted = compiler.jit(allocator, ops) catch |err| {
+        var jitted = jit.compile(allocator, ops) catch |err| {
             std.log.err("error occured in JIT compiler: {s}\n", .{@errorName(err)});
             return 1;
         };
@@ -80,5 +80,5 @@ fn parseArgs(args: [][:0]u8) !struct { []const u8, bool } {
 test {
     _ = @import("lexer.zig");
     _ = @import("interpreter.zig");
-    _ = @import("compiler.zig");
+    _ = @import("compiler/compiler.zig");
 }
