@@ -67,15 +67,21 @@ pub fn compileOp(allocator: std.mem.Allocator, op: lexer.Op) ![]u8 {
             0x8a, 0x07, // mov al, byte [rdi]
             0x84, 0xc0, // test al, al
             0x0f, 0x84, // jz
-            0x0, 0x0, 0x0, 0x0, // 4 bytes address when we reach ']'
+            0x0, 0x0, 0x0, 0x0, // 4 bytes address filled while back patching when we reach ']'
         },
         .jump_if_nonzero => &[_]u8{
             0x8a, 0x07, // mov al, byte [rdi]
             0x84, 0xc0, // test al, al
             0x0f, 0x85, // jnz
-            0x0, 0x0, 0x0, 0x0, // 4 bytes address filled from jumb_tbl
+            0x0, 0x0, 0x0, 0x0, // 4 bytes address filled while back patching
         },
     };
 
     return allocator.dupe(u8, machine_code);
+}
+
+pub fn backPatchMatchingBrackets(left_last_byte_index: usize, left_op: []u8, right_last_byte_index: usize, right_op: []u8) void {
+    const offset: i32 = @intCast(right_last_byte_index - left_last_byte_index);
+    @memcpy(left_op[left_op.len - 4 .. left_op.len], &std.mem.toBytes(offset));
+    @memcpy(right_op[right_op.len - 4 .. right_op.len], &std.mem.toBytes(-offset));
 }
