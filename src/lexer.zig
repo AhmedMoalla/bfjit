@@ -71,14 +71,12 @@ pub fn tokenize(allocator: std.mem.Allocator, content: []const u8) LexerError![]
                 char = next_char_in_streak;
             },
             '[' => {
-                if (builtin.cpu.arch != .aarch64) {
-                    if (lexer.lookAhead(2)) |next| {
-                        if (std.mem.eql(u8, next, "-]") or std.mem.eql(u8, next, "+]")) {
-                            try ops.append(.{ .set_zero = {} });
-                            lexer.pos += 2;
-                            char = lexer.next();
-                            continue;
-                        }
+                if (lexer.lookAhead(2)) |next| {
+                    if (std.mem.eql(u8, next, "-]") or std.mem.eql(u8, next, "+]")) {
+                        try ops.append(.{ .set_zero = {} });
+                        lexer.pos += 2;
+                        char = lexer.next();
+                        continue;
                     }
                 }
                 const addr: usize = ops.items.len;

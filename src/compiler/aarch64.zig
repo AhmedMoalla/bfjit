@@ -37,19 +37,22 @@ const read_syscall = &[_]u8{
 
 pub fn compileOp(allocator: std.mem.Allocator, op: lexer.Op) ![]u8 {
     const machine_code = switch (op) {
-        .set_zero => @panic("not implemented"),
+        .set_zero => &[_]u8{
+            0x08, 0x00, 0x80, 0x52, // mov w8, #0
+            0x08, 0x00, 0x00, 0x39, // strb w8, [x0]
+        },
         .inc => |count| try std.mem.concat(allocator, u8, &[_][]const u8{
             &[_]u8{ 0x08, 0x00, 0x40, 0x39 }, // ldrb w8, [x0]
-            &std.mem.toBytes(0x11000108 | (@as(u32, count) & 0xFF) << 10), // add w8, w8,
+            &std.mem.toBytes(0x11000108 | (@as(u32, count) & 0xFF) << 10), // add w8, operand
             &[_]u8{ 0x08, 0x00, 0x00, 0x39 }, // strb w8, [x0]
         }),
         .dec => |count| try std.mem.concat(allocator, u8, &[_][]const u8{
             &[_]u8{ 0x08, 0x00, 0x40, 0x39 }, // ldrb w8, [x0]
-            &std.mem.toBytes(0x51000108 | (@as(u32, count) & 0xFF) << 10), // sub w8, w8,
+            &std.mem.toBytes(0x51000108 | (@as(u32, count) & 0xFF) << 10), // sub w8, operand
             &[_]u8{ 0x08, 0x00, 0x00, 0x39 }, // strb w8, [x0]
         }),
-        .left => |count| &std.mem.toBytes(0xd1000000 | (@as(u32, count) & 0xFF) << 10), // sub x0, x0,
-        .right => |count| &std.mem.toBytes(0x91000000 | (@as(u32, count) & 0xFF) << 10), // add x0, x0,
+        .left => |count| &std.mem.toBytes(0xd1000000 | (@as(u32, count) & 0xFF) << 10), // sub x0, operand
+        .right => |count| &std.mem.toBytes(0x91000000 | (@as(u32, count) & 0xFF) << 10), // add x0, operand
         .output => |count| try repeatSlice(allocator, u8, write_syscall, count),
         .input => |count| try repeatSlice(allocator, u8, read_syscall, count),
         // cbz: https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/CBZ--Compare-and-Branch-on-Zero-?lang=en#sa_wt
