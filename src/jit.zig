@@ -9,36 +9,74 @@ pub fn compile(allocator: std.mem.Allocator, ops: []lexer.Op) !JittedCode {
     return JittedCode.init(code);
 }
 
-pub const JittedCode = struct {
+pub const JittedCode = if (builtin.os.tag == .windows) WindowsJittedCode else PosixJittedCode;
+
+const WindowsJittedCode = struct {
+    machine_code: [*]u8,
+    mem_ptr: *anyopaque,
+    mem_size: usize,
+
+    const windows = std.os.windows;
+
+    pub fn init(code: []u8) !WindowsJittedCode {
+        const ptr = try windows.VirtualAlloc(
+            null,
+            code.len,
+            windows.MEM_RESERVE | windows.MEM_COMMIT,
+            windows.PAGE_READWRITE,
+        );
+        const jitted: [*]u8 = @ptrCast(ptr);
+        @memcpy(jitted[0..code.len], code);
+
+        var old: windows.DWORD = undefined;
+        windows.VirtualProtect(ptr, code.len, windows.PAGE_EXECUTE_READ, &old) catch |err| switch (err) {
+            error.InvalidAddress => return error.AccessDenied,
+            error.Unexpected => return error.Unexpected,
+        };
+        return WindowsJittedCode{ .mem_ptr = ptr, .mem_size = code.len, .machine_code = jitted };
+    }
+
+    pub fn run(self: *WindowsJittedCode, memory: [*]u8) void {
+        const runFn: *const fn (memory: [*]u8) callconv(.c) void = @ptrCast(self.machine_code);
+        runFn(memory);
+    }
+
+    pub fn deinit(self: *WindowsJittedCode) void {
+        windows.VirtualFree(self.mem_ptr, self.mem_size, windows.MEM_RELEASE);
+    }
+};
+
+const PosixJittedCode = struct {
     machine_code: []align(std.heap.page_size_min) u8,
+    const posix = std.posix;
 
     // https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.cs.allow-jit
-    const mmap_flags: std.posix.MAP = if (builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)
+    const mmap_flags: posix.MAP = if (builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)
         .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .JIT = true }
     else
         .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
 
-    pub fn init(code: []u8) !JittedCode {
-        const jitted = try std.posix.mmap(
+    pub fn init(code: []u8) !PosixJittedCode {
+        const jitted = try posix.mmap(
             null,
             code.len,
-            std.posix.PROT.READ | std.posix.PROT.WRITE,
+            posix.PROT.READ | .PROT.WRITE,
             mmap_flags,
             -1,
             0,
         );
         @memcpy(jitted[0..code.len], code);
 
-        try std.posix.mprotect(jitted, std.posix.PROT.READ | std.posix.PROT.EXEC);
-        return JittedCode{ .machine_code = jitted };
+        try posix.mprotect(jitted, posix.PROT.READ | posix.PROT.EXEC);
+        return PosixJittedCode{ .machine_code = jitted };
     }
 
-    pub fn run(self: *JittedCode, memory: [*]u8) void {
+    pub fn run(self: *PosixJittedCode, memory: [*]u8) void {
         const runFn: *const fn (memory: [*]u8) callconv(.c) void = @ptrCast(self.machine_code);
         runFn(memory);
     }
 
-    pub fn deinit(self: *JittedCode) void {
-        std.posix.munmap(self.machine_code);
+    pub fn deinit(self: *PosixJittedCode) void {
+        posix.munmap(self.machine_code);
     }
 };
