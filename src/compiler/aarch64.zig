@@ -1,8 +1,39 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const lexer = @import("../lexer.zig");
+const repeatSlice = @import("utils.zig").repeatSlice;
 
 pub const return_instruction = &[_]u8{ 0xc0, 0x03, 0x5f, 0xd6 }; // ret
+
+const move_write_syscall = if (builtin.os.tag == .macos)
+    &[_]u8{ 0x90, 0x00, 0x80, 0xd2 } // mov x16, 4
+else
+    &[_]u8{ 0x08, 0x08, 0x80, 0xd2 }; // mov x8, 64
+
+const write_syscall = &[_]u8{
+    0xe1, 0x03, 0x00, 0xaa, // mov x1, x0
+    0xe4, 0x03, 0x00, 0xaa, // mov x4, x0
+    0x20, 0x00, 0x80, 0xd2, // mov x0, 1
+    0x22, 0x00, 0x80, 0xd2, // mov x2, 1
+} ++ move_write_syscall ++ &[_]u8{
+    0x01, 0x00, 0x00, 0xd4, // svc 0
+    0xe0, 0x03, 0x04, 0xaa, // mov x0, x4
+};
+
+const move_read_syscall = if (builtin.os.tag == .macos)
+    &[_]u8{ 0x70, 0x00, 0x80, 0xd2 } // mov x16, 3
+else
+    &[_]u8{ 0xe8, 0x07, 0x80, 0xd2 }; // mov x8, 63
+
+const read_syscall = &[_]u8{
+    0xe1, 0x03, 0x00, 0xaa, // mov x1, x0
+    0xe4, 0x03, 0x00, 0xaa, // mov x4, x0
+    0x20, 0x00, 0x80, 0xd2, // mov x0, 1
+    0x22, 0x00, 0x80, 0xd2, // mov x2, 0
+} ++ move_read_syscall ++ &[_]u8{
+    0x01, 0x00, 0x00, 0xd4, // svc 0
+    0xe0, 0x03, 0x04, 0xaa, // mov x0, x4
+};
 
 pub fn compileOp(allocator: std.mem.Allocator, op: lexer.Op) ![]u8 {
     const machine_code = switch (op) {
@@ -14,57 +45,13 @@ pub fn compileOp(allocator: std.mem.Allocator, op: lexer.Op) ![]u8 {
         }),
         .dec => |count| try std.mem.concat(allocator, u8, &[_][]const u8{
             &[_]u8{ 0x08, 0x00, 0x40, 0x39 }, // ldrb w8, [x0]
-            &std.mem.toBytes(0x51000108 | (@as(u32, count) & 0xFF) << 10), // add w8, w8,
+            &std.mem.toBytes(0x51000108 | (@as(u32, count) & 0xFF) << 10), // sub w8, w8,
             &[_]u8{ 0x08, 0x00, 0x00, 0x39 }, // strb w8, [x0]
         }),
         .left => |count| &std.mem.toBytes(0xd1000000 | (@as(u32, count) & 0xFF) << 10), // sub x0, x0,
         .right => |count| &std.mem.toBytes(0x91000000 | (@as(u32, count) & 0xFF) << 10), // add x0, x0,
-        .output => |count| {
-            const syscall = &[_]u8{
-                0xe1, 0x03, 0x00, 0xaa, // mov x1, x0
-                0xe4, 0x03, 0x00, 0xaa, // mov x4, x0
-                0x20, 0x00, 0x80, 0xd2, // mov x0, 1
-                0x22, 0x00, 0x80, 0xd2, // mov x2, 1
-            } ++
-                if (builtin.os.tag == .macos) &[_]u8{ 0x90, 0x00, 0x80, 0xd2 } // mov x16, 4
-                else &[_]u8{ 0x08, 0x08, 0x80, 0xd2 } // mov x8, 64
-                ++ &[_]u8{
-                    0x01, 0x00, 0x00, 0xd4, // svc 0
-                    0xe0, 0x03, 0x04, 0xaa, // mov x0, x4
-                };
-
-            var buffer = try std.ArrayList(u8).initCapacity(allocator, count * syscall.len);
-            defer buffer.deinit();
-
-            for (0..count) |_| {
-                try buffer.appendSlice(syscall);
-            }
-
-            return buffer.toOwnedSlice();
-        },
-        .input => |count| {
-            const syscall = &[_]u8{
-                0xe1, 0x03, 0x00, 0xaa, // mov x1, x0
-                0xe4, 0x03, 0x00, 0xaa, // mov x4, x0
-                0x20, 0x00, 0x80, 0xd2, // mov x0, 1
-                0x22, 0x00, 0x80, 0xd2, // mov x2, 0
-            } ++
-                if (builtin.os.tag == .macos) &[_]u8{ 0x70, 0x00, 0x80, 0xd2 } // mov x16, 3
-                else &[_]u8{ 0xe8, 0x07, 0x80, 0xd2 } // mov x8, 63
-                ++ &[_]u8{
-                    0x01, 0x00, 0x00, 0xd4, // svc 0
-                    0xe0, 0x03, 0x04, 0xaa, // mov x0, x4
-                };
-
-            var buffer = try std.ArrayList(u8).initCapacity(allocator, count * syscall.len);
-            defer buffer.deinit();
-
-            for (0..count) |_| {
-                try buffer.appendSlice(syscall);
-            }
-
-            return buffer.toOwnedSlice();
-        },
+        .output => |count| try repeatSlice(allocator, u8, write_syscall, count),
+        .input => |count| try repeatSlice(allocator, u8, read_syscall, count),
         // cbz: https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/CBZ--Compare-and-Branch-on-Zero-?lang=en#sa_wt
         .jump_if_zero => &[_]u8{
             0x08, 0x00, 0x40, 0x39, // ldrb w8, [x0]

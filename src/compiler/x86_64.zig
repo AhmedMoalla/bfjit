@@ -1,8 +1,39 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const lexer = @import("../lexer.zig");
+const repeatSlice = @import("utils.zig").repeatSlice;
 
 pub const return_instruction = &[_]u8{0xC3}; // ret
+
+const move_write_syscall = if (builtin.os.tag == .macos)
+    &[_]u8{ 0x48, 0xc7, 0xc0, 0x04, 0x00, 0x00, 0x02 } // mov rax, 2000004
+else
+    &[_]u8{ 0x48, 0xc7, 0xc0, 0x01, 0x00, 0x00, 0x00 }; // mov rax, 1
+
+const write_syscall = &[_]u8{
+    0x57, // push rdi
+} ++ move_write_syscall ++ &[_]u8{
+    0x48, 0x89, 0xfe, // mov rsi, rdi
+    0x48, 0xc7, 0xc7, 0x01, 0x00, 0x00, 0x00, // mov rdi, 1
+    0x48, 0xc7, 0xc2, 0x01, 0x00, 0x00, 0x00, // mov rdx, 1
+    0x0f, 0x05, // syscall
+    0x5f, // pop rdi
+};
+
+const move_read_syscall = if (builtin.os.tag == .macos)
+    &[_]u8{ 0x48, 0xc7, 0xc0, 0x03, 0x00, 0x00, 0x02 } // mov rax, 2000003
+else
+    &[_]u8{ 0x48, 0xc7, 0xc0, 0x0, 0x0, 0x0, 0x0 }; // mov rax, 0
+
+const read_syscall = &[_]u8{
+    0x57, // push rdi
+} ++ move_read_syscall ++ &[_]u8{
+    0x48, 0x89, 0xfe, // mov rsi, rdi
+    0x48, 0xc7, 0xc7, 0x00, 0x0, 0x0, 0x0, // mov rdi, 0
+    0x48, 0xc7, 0xc2, 0x01, 0x0, 0x0, 0x0, // mov rdx, 1
+    0x0f, 0x05, // syscall
+    0x5f, // pop rdi
+};
 
 pub fn compileOp(allocator: std.mem.Allocator, op: lexer.Op) ![]u8 {
     const machine_code = switch (op) {
@@ -17,52 +48,8 @@ pub fn compileOp(allocator: std.mem.Allocator, op: lexer.Op) ![]u8 {
             &[_]u8{ 0x48, 0x81, 0xc7 }, // add rdi,
             &std.mem.toBytes(@as(u32, count)), // operand
         }),
-        .output => |count| {
-            const syscall = &[_]u8{
-                0x57, // push rdi
-            } ++
-                if (builtin.os.tag == .macos) &[_]u8{ 0x48, 0xc7, 0xc0, 0x04, 0x00, 0x00, 0x02 } // mov rax, 2000004
-                else &[_]u8{ 0x48, 0xc7, 0xc0, 0x01, 0x00, 0x00, 0x00 } // mov rax, 1
-                ++ &[_]u8{
-                    0x48, 0x89, 0xfe, // mov rsi, rdi
-                    0x48, 0xc7, 0xc7, 0x01, 0x00, 0x00, 0x00, // mov rdi, 1
-                    0x48, 0xc7, 0xc2, 0x01, 0x00, 0x00, 0x00, // mov rdx, 1
-                    0x0f, 0x05, // syscall
-                    0x5f, // pop rdi
-                };
-
-            var buffer = try std.ArrayList(u8).initCapacity(allocator, count * syscall.len);
-            defer buffer.deinit();
-
-            for (0..count) |_| {
-                try buffer.appendSlice(syscall);
-            }
-
-            return buffer.toOwnedSlice();
-        },
-        .input => |count| {
-            const syscall = &[_]u8{
-                0x57, // push rdi
-            } ++
-                if (builtin.os.tag == .macos) &[_]u8{ 0x48, 0xc7, 0xc0, 0x03, 0x00, 0x00, 0x02 } // mov rax, 2000003
-                else &[_]u8{ 0x48, 0xc7, 0xc0, 0x0, 0x0, 0x0, 0x0 } // mov rax, 0
-                ++ &[_]u8{
-                    0x48, 0x89, 0xfe, // mov rsi, rdi
-                    0x48, 0xc7, 0xc7, 0x00, 0x0, 0x0, 0x0, // mov rdi, 0
-                    0x48, 0xc7, 0xc2, 0x01, 0x0, 0x0, 0x0, // mov rdx, 1
-                    0x0f, 0x05, // syscall
-                    0x5f, // pop rdi
-                };
-
-            var buffer = try std.ArrayList(u8).initCapacity(allocator, count * syscall.len);
-            defer buffer.deinit();
-
-            for (0..count) |_| {
-                try buffer.appendSlice(syscall);
-            }
-
-            return buffer.toOwnedSlice();
-        },
+        .output => |count| try repeatSlice(allocator, u8, write_syscall, count),
+        .input => |count| try repeatSlice(allocator, u8, read_syscall, count),
         .jump_if_zero => &[_]u8{
             0x8a, 0x07, // mov al, byte [rdi]
             0x84, 0xc0, // test al, al
