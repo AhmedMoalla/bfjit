@@ -17,5 +17,6 @@ $ ./zig-out/bin/bfjit --no-jit examples/hello.bf
 
 ## TODO
 - [ ] Compile brainfuck programs into executables
-- [ ] Add support to ARM64 to run it on M-series MacOS
-- [ ] Add support for Windows
+- [ ] Add option to output C
+- [ ] Add option to output Java bytecode
+- [ ] Make the memory grow automatically in JIT mode
