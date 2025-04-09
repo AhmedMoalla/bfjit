@@ -11,6 +11,10 @@ pub fn build(b: *std.Build) void {
         .single_threaded = true,
     });
 
+    if (target.result.os.tag == .windows) {
+        exe_mod.link_libc = true;
+    }
+
     const exe = b.addExecutable(.{
         .name = "bfjit",
         .root_module = exe_mod,

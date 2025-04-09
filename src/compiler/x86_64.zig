@@ -35,29 +35,74 @@ const read_syscall = &[_]u8{
     0x5f, // pop rdi
 };
 
+// https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention?view=msvc-170
+const target_register = switch (builtin.os.tag) {
+    .windows => 0b001, // rcx
+    else => 0b111, // rdi
+};
+
+extern "c" fn getchar() c_int;
+extern "c" fn putchar(char: c_int) c_int;
+
 pub fn compileOp(allocator: std.mem.Allocator, op: lexer.Op) ![]u8 {
-    const machine_code = switch (op) {
-        .set_zero => &[_]u8{ 0xc6, 0x07, 0x00 }, // mov byte [rdi], 0
-        .inc => |count| &[_]u8{ 0x80, 0x07, count }, // add byte[rdi], operand
-        .dec => |count| &[_]u8{ 0x80, 0x2f, count }, // sub byte[rdi], operand
+    const machine_code = sw: switch (op) {
+        .set_zero => &[_]u8{ 0xc6, 0x0 | target_register, 0x00 }, // mov byte [REG], 0
+        .inc => |count| &[_]u8{ 0x80, 0x0 | target_register, count }, // add byte[REG], operand
+        .dec => |count| &[_]u8{ 0x80, 0x28 | target_register, count }, // sub byte[REG], operand
         .left => |count| try std.mem.concat(allocator, u8, &[_][]const u8{
-            &[_]u8{ 0x48, 0x81, 0xef }, // sub rdi,
+            &[_]u8{ 0x48, 0x81, 0xe8 | target_register }, // sub REG,
             &std.mem.toBytes(@as(u32, count)), // operand
         }),
         .right => |count| try std.mem.concat(allocator, u8, &[_][]const u8{
-            &[_]u8{ 0x48, 0x81, 0xc7 }, // add rdi,
+            &[_]u8{ 0x48, 0x81, 0xc0 | target_register }, // add REG,
             &std.mem.toBytes(@as(u32, count)), // operand
         }),
-        .output => |count| try repeatSlice(allocator, u8, write_syscall, count),
-        .input => |count| try repeatSlice(allocator, u8, read_syscall, count),
+        .output => |count| {
+            const write_call: []const u8 = if (builtin.os.tag == .windows)
+                try std.mem.concat(allocator, u8, &[_][]const u8{
+                    &[_]u8{
+                        0x51, // push rcx
+                        0x48, 0xb8, // mov rax,
+                    },
+                    &std.mem.toBytes(@intFromPtr(&putchar)), // &putchar
+                    &[_]u8{
+                        0x0f, 0xbe, 0x09, // movsx ecx, byte [rcx]
+                        0xff, 0xd0, // call rax
+                        0x59, // pop rcx
+                    },
+                })
+            else
+                write_syscall;
+
+            break :sw try repeatSlice(allocator, u8, write_call, count);
+        },
+        .input => |count| {
+            const read_call: []const u8 = if (builtin.os.tag == .windows)
+                try std.mem.concat(allocator, u8, &[_][]const u8{
+                    &[_]u8{
+                        0x51, // push rcx
+                        0x48, 0xb8, // mov rax,
+                    },
+                    &std.mem.toBytes(@intFromPtr(&getchar)), // &getchar
+                    &[_]u8{
+                        0xff, 0xd0, // call rax
+                        0x59, // pop rcx
+                        0x88, 0x01, // mov [rcx], al
+                    },
+                })
+            else
+                read_syscall;
+
+            break :sw try repeatSlice(allocator, u8, read_call, count);
+        },
         .jump_if_zero => &[_]u8{
-            0x8a, 0x07, // mov al, byte [rdi]
+            0x8a, 0x0 | target_register, // mov al, byte [REG]
             0x84, 0xc0, // test al, al
             0x0f, 0x84, // jz
             0x0, 0x0, 0x0, 0x0, // 4 bytes address filled while back patching when we reach ']'
         },
         .jump_if_nonzero => &[_]u8{
-            0x8a, 0x07, // mov al, byte [rdi]
+            0x8a, 0x0 | target_register, // mov al, byte [REG]
             0x84, 0xc0, // test al, al
             0x0f, 0x85, // jnz
             0x0, 0x0, 0x0, 0x0, // 4 bytes address filled while back patching
