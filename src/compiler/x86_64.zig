@@ -80,13 +80,13 @@ pub fn compileOp(allocator: std.mem.Allocator, op: lexer.Op) ![]u8 {
             const read_call: []const u8 = if (builtin.os.tag == .windows)
                 try std.mem.concat(allocator, u8, &[_][]const u8{
                     &[_]u8{
-                        0x51, // push rcx
+                        0x49, 0x89, 0xc9, // mov r9, rcx
                         0x48, 0xb8, // mov rax,
                     },
                     &std.mem.toBytes(@intFromPtr(&getchar)), // &getchar
                     &[_]u8{
                         0xff, 0xd0, // call rax
-                        0x59, // pop rcx
+                        0x4c, 0x89, 0xc9, // mov rcx, r9
                         0x88, 0x01, // mov [rcx], al
                     },
                 })
