@@ -13,7 +13,11 @@ pub fn main() !u8 {
     defer std.process.argsFree(allocator, args);
 
     const input, const do_jit = parseArgs(args) catch |err| {
-        std.log.err("usage: bfjit [--no-jit] <input.bf>", .{});
+        std.log.err(
+            \\Usage: bfjit [-i] <input.bf>
+            \\Options:
+            \\  -i: use the interpreter instead of the default JIT compilation (optional)
+        , .{});
         switch (err) {
             error.InputRequired => std.log.err("no input is provided", .{}),
         }
@@ -62,7 +66,7 @@ fn parseArgs(args: [][:0]u8) !struct { []const u8, bool } {
             continue;
         }
 
-        if (std.mem.eql(u8, arg, "--no-jit")) {
+        if (std.mem.eql(u8, arg, "-i")) {
             do_jit = false;
             continue;
         }

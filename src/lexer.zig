@@ -12,6 +12,8 @@ pub const Op = union(enum(u8)) {
     jump_if_zero: usize = '[',
     jump_if_nonzero: usize = ']',
     set_zero: void = '0',
+
+    pub const Kind = @typeInfo(Op).@"union".tag_type.?;
 };
 
 const Lexer = struct {
@@ -48,41 +50,19 @@ pub fn tokenize(allocator: std.mem.Allocator, content: []const u8) LexerError![]
     defer stack.deinit();
 
     var lexer = Lexer{ .content = content };
-    var char = lexer.next();
-    while (char != null) {
-        switch (char.?) {
-            '+', '-', '<', '>', '.', ',' => {
-                var count: u8 = 1;
-                var next_char_in_streak = lexer.next();
-                while (next_char_in_streak == char.?) : (next_char_in_streak = lexer.next()) {
-                    count = @addWithOverflow(count, 1)[0];
-                }
-
-                // TODO: Refactor this
-                try ops.append(switch (char.?) {
-                    '+' => .{ .inc = count },
-                    '-' => .{ .dec = count },
-                    '<' => .{ .left = count },
-                    '>' => .{ .right = count },
-                    '.' => .{ .output = count },
-                    ',' => .{ .input = count },
-                    else => unreachable,
-                });
-                char = next_char_in_streak;
-            },
+    while (lexer.next()) |char| {
+        switch (char) {
             '[' => {
                 if (lexer.lookAhead(2)) |next| {
                     if (std.mem.eql(u8, next, "-]") or std.mem.eql(u8, next, "+]")) {
                         try ops.append(.{ .set_zero = {} });
                         lexer.pos += 2;
-                        char = lexer.next();
                         continue;
                     }
                 }
                 const addr: usize = ops.items.len;
                 try ops.append(.{ .jump_if_zero = addr });
                 try stack.append(addr);
-                char = lexer.next();
             },
             ']' => {
                 if (stack.items.len == 0) {
@@ -93,10 +73,20 @@ pub fn tokenize(allocator: std.mem.Allocator, content: []const u8) LexerError![]
                 const addr: usize = stack.pop().?;
                 try ops.append(.{ .jump_if_nonzero = addr + 1 });
                 ops.items[addr].jump_if_zero = ops.items.len;
-
-                char = lexer.next();
             },
-            else => continue,
+            else => {
+                var count: u8 = 1;
+                while (lexer.next() == char) {
+                    count = @addWithOverflow(count, 1)[0];
+                }
+                lexer.pos -= 1;
+
+                const kind: Op.Kind = @enumFromInt(char);
+                try ops.append(switch (kind) {
+                    .set_zero => unreachable,
+                    inline else => |tag| @unionInit(Op, @tagName(tag), count),
+                });
+            },
         }
     }
 

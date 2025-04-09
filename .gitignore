@@ -3,4 +3,5 @@ zig-out/
 *.asm
 *.bin
 *.o
+*.s
 src/tests/excluded
