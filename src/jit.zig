@@ -58,7 +58,7 @@ const PosixJittedCode = struct {
         const jitted = try posix.mmap(
             null,
             code.len,
-            posix.PROT.READ | .PROT.WRITE,
+            posix.PROT.READ | posix.PROT.WRITE,
             mmap_flags,
             -1,
             0,
