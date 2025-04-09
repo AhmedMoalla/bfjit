@@ -13,8 +13,6 @@ pub const JittedCode = if (builtin.os.tag == .windows) WindowsJittedCode else Po
 
 const WindowsJittedCode = struct {
     machine_code: [*]u8,
-    mem_ptr: *anyopaque,
-    mem_size: usize,
 
     const windows = std.os.windows;
 
@@ -33,7 +31,7 @@ const WindowsJittedCode = struct {
             error.InvalidAddress => return error.AccessDenied,
             error.Unexpected => return error.Unexpected,
         };
-        return WindowsJittedCode{ .mem_ptr = ptr, .mem_size = code.len, .machine_code = jitted };
+        return WindowsJittedCode{ .machine_code = jitted };
     }
 
     pub fn run(self: *WindowsJittedCode, memory: [*]u8) void {
@@ -42,7 +40,7 @@ const WindowsJittedCode = struct {
     }
 
     pub fn deinit(self: *WindowsJittedCode) void {
-        windows.VirtualFree(self.mem_ptr, self.mem_size, windows.MEM_RELEASE);
+        windows.VirtualFree(self.machine_code, 0, windows.MEM_RELEASE);
     }
 };
 
