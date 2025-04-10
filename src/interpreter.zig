@@ -1,93 +1,71 @@
 const std = @import("std");
 
 const lexer = @import("lexer.zig");
+const log = @import("logger.zig").scoped(.interpreter);
 
 pub fn interpret(allocator: std.mem.Allocator, ops: []lexer.Op, in: std.io.AnyReader, out: std.io.AnyWriter) !void {
-    var memory = std.ArrayList(u8).init(allocator);
+    var memory = try Memory(u32).init(allocator);
     defer memory.deinit();
-    var head: usize = 0;
     var ip: usize = 0;
 
     while (ip < ops.len) {
         const op = ops[ip];
         switch (op) {
             .set_zero => {
-                if (head >= memory.items.len) {
-                    try memory.appendNTimes(0, head - memory.items.len + 1);
-                }
-                memory.items[head] = 0;
+                try memory.setAtHead(0);
                 ip += 1;
             },
             .inc => |count| {
-                if (head >= memory.items.len) {
-                    try memory.appendNTimes(0, head - memory.items.len + 1);
-                }
-                memory.items[head] = @addWithOverflow(memory.items[head], count)[0];
+                try memory.incAtHead(count);
                 ip += 1;
             },
             .dec => |count| {
-                if (head >= memory.items.len) {
-                    try memory.appendNTimes(0, head - memory.items.len + 1);
-                }
-                memory.items[head] = @subWithOverflow(memory.items[head], count)[0];
+                try memory.decAtHead(count);
                 ip += 1;
             },
             .left => |count| {
-                if (head < count) {
-                    std.log.err("memory underflow at instruction: {d} (count: {d})", .{ ip, count });
-                    return error.MemoryUnderflow;
-                }
-                head -= count;
+                memory.decHead(count) catch |err| {
+                    log.err("memory underflow at instruction: {d} (count: {d})", .{ ip, count });
+                    return err;
+                };
                 ip += 1;
             },
             .right => |count| {
-                head += count;
-                if (head >= memory.items.len) {
-                    try memory.appendNTimes(0, head - memory.items.len + 1);
-                }
+                try memory.incHead(count);
                 ip += 1;
             },
             .input => |count| {
-                if (head >= memory.items.len) {
-                    try memory.appendNTimes(0, head - memory.items.len + 1);
-                }
-
                 for (0..count) |_| {
                     const byte = in.readByte() catch |err| {
                         switch (err) {
                             error.EndOfStream => {},
-                            else => std.log.err("error occurred while reading from stdin {s}", .{@errorName(err)}),
+                            else => log.err("error occurred while reading from stdin {s}", .{@errorName(err)}),
                         }
                         continue;
                     };
-                    memory.items[head] = byte;
+                    try memory.setAtHead(byte);
                 }
                 ip += 1;
             },
             .output => |count| {
-                if (head < memory.items.len) {
+                if (memory.getAtHead()) |value| {
                     for (0..count) |_| {
-                        try out.print("{c}", .{memory.items[head]});
+                        const char: u8 = @intCast(value);
+                        try out.print("{c}", .{char});
                     }
                 }
 
                 ip += 1;
             },
             .jump_if_zero => |addr| {
-                if (memory.items.len == 0) {
-                    try memory.append(0);
-                }
-                if (memory.items[head] == 0) {
+                if (memory.getAtHead() == 0) {
                     ip = addr;
                 } else {
                     ip += 1;
                 }
             },
             .jump_if_nonzero => |addr| {
-                if (memory.items.len == 0) {
-                    try memory.append(0);
-                }
-                if (memory.items[head] != 0) {
+                if (memory.getAtHead() != 0) {
                     ip = addr;
                 } else {
                     ip += 1;
@@ -95,6 +73,63 @@ pub fn interpret(allocator: std.mem.Allocator, ops: []lexer.Op, in: std.io.AnyRe
             },
         }
     }
+}
+
+pub fn Memory(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        bytes: std.ArrayList(T),
+        head: usize = 0,
+
+        pub fn init(allocator: std.mem.Allocator) !Self {
+            var bytes = try std.ArrayList(T).initCapacity(allocator, 1000);
+            try bytes.appendNTimes(0, bytes.capacity);
+            return Self{ .bytes = bytes };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.bytes.deinit();
+        }
+
+        pub fn incHead(self: *Self, count: usize) !void {
+            self.head += count;
+            try self.appendZerosToReachHead();
+        }
+
+        pub fn decHead(self: *Self, count: usize) !void {
+            if (self.head < count) {
+                return error.MemoryUnderflow;
+            }
+            self.head -= count;
+        }
+
+        pub fn incAtHead(self: *Self, count: T) !void {
+            try self.appendZerosToReachHead();
+            self.bytes.items[self.head] = @addWithOverflow(self.bytes.items[self.head], count)[0];
+        }
+
+        pub fn decAtHead(self: *Self, count: T) !void {
+            try self.appendZerosToReachHead();
+            self.bytes.items[self.head] = @subWithOverflow(self.bytes.items[self.head], count)[0];
+        }
+
+        pub fn getAtHead(self: *Self) ?T {
+            if (self.head >= self.bytes.items.len) return null;
+            return self.bytes.items[self.head];
+        }
+
+        pub fn setAtHead(self: *Self, value: T) !void {
+            try self.appendZerosToReachHead();
+            self.bytes.items[self.head] = value;
+        }
+
+        fn appendZerosToReachHead(self: *Self) !void {
+            if (self.head >= self.bytes.items.len) {
+                try self.bytes.appendNTimes(0, self.head - self.bytes.items.len + 1);
+            }
+        }
+    };
 }
 
 test interpret {

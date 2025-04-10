@@ -24,7 +24,7 @@
             "request": "launch",
             "name": "bfjit JIT:off",
             "program": "${workspaceFolder}/zig-out/bin/bfjit",
-            "args": ["--no-jit", "./src/tests/cases/Hello.b"],
+            "args": ["-i", "./src/tests/cases/Mandelbrot.b"],
             "cwd": "${workspaceFolder}",
             "console": "internalConsole"
         }
