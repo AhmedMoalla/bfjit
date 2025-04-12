@@ -3,8 +3,8 @@ const std = @import("std");
 const lexer = @import("lexer.zig");
 const log = @import("logger.zig").scoped(.interpreter);
 
-pub fn interpret(allocator: std.mem.Allocator, ops: []lexer.Op, in: std.io.AnyReader, out: std.io.AnyWriter) !void {
-    var memory = try Memory(u32).init(allocator);
+pub fn interpret(allocator: std.mem.Allocator, cell_width: type, ops: []lexer.Op, in: std.io.AnyReader, out: std.io.AnyWriter) !void {
+    var memory = try Memory(cell_width).init(allocator);
     defer memory.deinit();
     var ip: usize = 0;
 
@@ -75,7 +75,7 @@ pub fn interpret(allocator: std.mem.Allocator, ops: []lexer.Op, in: std.io.AnyRe
     }
 }
 
-pub fn Memory(comptime T: type) type {
+fn Memory(T: type) type {
     return struct {
         const Self = @This();
 

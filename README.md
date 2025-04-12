@@ -20,4 +20,4 @@ $ ./zig-out/bin/bfjit -i src/tests/cases/Hello.b
 - [ ] Add option to output C
 - [ ] Add option to output Java bytecode
 - [ ] Make the memory grow automatically in JIT mode
-- [ ] Add support for different cell sizes: 8, 16 or 32 bits (defaults to 8) 
+- [ ] Add support for different cell sizes: 8, 16 or 32 bits (defaults to 8) in JIT mode

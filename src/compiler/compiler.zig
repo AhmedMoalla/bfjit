@@ -57,5 +57,3 @@ pub fn compile(allocator: std.mem.Allocator, ops: []lexer.Op) ![]u8 {
     try code.appendSlice(inner.return_instruction);
     return code.toOwnedSlice();
 }
-
-test compile {}
