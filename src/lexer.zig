@@ -138,25 +138,25 @@ fn expectOps(input: []const u8, expected: anytype) !void {
 }
 
 test tokenize {
-    // try expectOps(">", .right);
-    // try expectOps("<", .left);
-    // try expectOps("+", .inc);
-    // try expectOps("-", .dec);
-    // try expectOps(".", .output);
-    // try expectOps(",", .input);
-    // expectOps("[", .jump_if_zero) catch |err| {
-    //     try std.testing.expectEqual(LexerError.InvalidJumpAddress, err);
-    // };
-    // expectOps("]", .jump_if_nonzero) catch |err| {
-    //     try std.testing.expectEqual(LexerError.UnbalancedLoop, err);
-    // };
-    // try expectOps("[]", .{ .{ .jump_if_zero = 2 }, .{ .jump_if_nonzero = 1 } });
-    // try expectOps("++++[------]", .{
-    //     .{ .inc = 4 },
-    //     .{ .jump_if_zero = 4 },
-    //     .{ .dec = 6 },
-    //     .{ .jump_if_nonzero = 2 },
-    // });
+    try expectOps(">", .right);
+    try expectOps("<", .left);
+    try expectOps("+", .inc);
+    try expectOps("-", .dec);
+    try expectOps(".", .output);
+    try expectOps(",", .input);
+    expectOps("[", .jump_if_zero) catch |err| {
+        try std.testing.expectEqual(LexerError.InvalidJumpAddress, err);
+    };
+    expectOps("]", .jump_if_nonzero) catch |err| {
+        try std.testing.expectEqual(LexerError.UnbalancedLoop, err);
+    };
+    try expectOps("[]", .{ .{ .jump_if_zero = 2 }, .{ .jump_if_nonzero = 1 } });
+    try expectOps("++++[------]", .{
+        .{ .inc = 4 },
+        .{ .jump_if_zero = 4 },
+        .{ .dec = 6 },
+        .{ .jump_if_nonzero = 2 },
+    });
     try expectOps("++++[------]<<>..,--", .{
         .{ .inc = 4 },
         .{ .jump_if_zero = 4 },

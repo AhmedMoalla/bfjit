@@ -16,7 +16,7 @@ $ ./zig-out/bin/bfjit -i src/tests/cases/Hello.b
 ```
 
 ## TODO
-- [ ] Compile brainfuck programs into executables
+- [ ] Compile brainfuck programs into executables (maybe use qbe or llvm)
 - [ ] Add option to output C
 - [ ] Add option to output Java bytecode
 - [ ] Make the memory grow automatically in JIT mode
