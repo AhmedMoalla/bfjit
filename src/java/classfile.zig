@@ -7,10 +7,11 @@ pub fn main() !void {
 
     const String = try JavaType.of(gpa, "java.lang.String");
 
-    var classfile = try ClassFile.init("BrainfuckProgram", gpa);
+    const class_name = "BrainfuckProgram";
+    var classfile = try ClassFile.init(class_name, gpa);
     defer classfile.deinit();
 
-    var bytecode = ByteCode.init(gpa);
+    var bytecode = try ByteCode.init(gpa);
     defer bytecode.deinit();
 
     var class_bytes = std.ArrayList(u8).init(gpa);
@@ -19,22 +20,16 @@ pub fn main() !void {
     classfile.withVersion(.java_8, 0);
     try classfile.withMethod(
         "main",
-        try MethodSignature.of(gpa, JavaType.void, .{try String.array(gpa)}),
+        try .of(gpa, .void, .{try String.array(gpa)}),
         .{ .public = true, .static = true },
-        bytecode
+        try bytecode
             .@"return"(),
     );
-    try classfile.build(class_bytes.writer().any());
+    try classfile.write(class_bytes.writer().any());
 
-    classfile.debugLog();
+    // classfile.debugLog();
 
-    std.debug.print("\n", .{});
-    for (class_bytes.items) |b| {
-        std.debug.print("{X:0>2} ", .{b});
-    }
-    std.debug.print("\n", .{});
-
-    const file = try std.fs.cwd().createFile("out.class", .{ .truncate = true });
+    const file = try std.fs.cwd().createFile(class_name ++ ".class", .{ .truncate = true });
     const bytes = try file.write(class_bytes.items);
     std.debug.print("{d} bytes written\n", .{bytes});
 }
@@ -46,6 +41,12 @@ const MethodInfo = struct {
     name_index: u16,
     descriptor_index: u16,
     attributes: []const AttributeInfo,
+
+    pub fn allocAttributes(gpa: std.mem.Allocator, pool: *ConstantPool, code: []u8) ![]AttributeInfo {
+        const code_attribute = try gpa.alloc(AttributeInfo, 1);
+        code_attribute[0] = .{ .code = try CodeAttribute.init(pool, code) };
+        return code_attribute;
+    }
 
     pub fn write(self: *const Self, writer: std.io.AnyWriter) !void {
         try writer.writeInt(u16, self.access_flags, .big);
@@ -97,20 +98,19 @@ const ClassFile = struct {
         self.minor_version = minor_version;
     }
 
-    pub fn withMethod(self: *Self, name: []const u8, signature: MethodSignature, access_flags: AccessFlags, code: anytype) !void {
+    pub fn withMethod(self: *Self, name: []const u8, signature: MethodSignature, access_flags: AccessFlags, code: *ByteCode) !void {
         const name_index = try self.pool.utf8Entry(name);
         const descriptor_index = try self.pool.utf8Entry(signature.descriptor);
+
         try self.methods.append(MethodInfo{
             .access_flags = access_flags.asU16(),
             .name_index = name_index,
             .descriptor_index = descriptor_index,
-            .attributes = &[_]AttributeInfo{
-                .{ .code = try CodeAttribute.init(&self.pool, code) },
-            },
+            .attributes = try MethodInfo.allocAttributes(self.gpa, &self.pool, code.bytes.items),
         });
     }
 
-    pub fn build(self: *Self, writer: std.io.AnyWriter) !void {
+    pub fn write(self: *Self, writer: std.io.AnyWriter) !void {
         try writer.writeInt(u32, magic, .big);
         try writer.writeInt(u16, self.minor_version, .big);
         try writer.writeInt(u16, self.major_version, .big);
@@ -128,6 +128,8 @@ const ClassFile = struct {
     }
 
     pub fn debugLog(self: *Self) void {
+        std.debug.print("\n======= Debug Information =======\n", .{});
+
         var class: *ConstantClassInfo = @ptrCast(&self.pool.pool.items[self.this_class - 1]);
         var utf8: *ConstantUtf8Info = @ptrCast(&self.pool.pool.items[class.name_index - 1]);
         std.debug.print("class name: {s}\n", .{utf8.bytes});
@@ -142,6 +144,8 @@ const ClassFile = struct {
         self.pool.debugLog();
         std.debug.print("fields:\n", .{});
         std.debug.print("methods:\n", .{});
+
+        std.debug.print("=================================\n", .{});
     }
 };
 
@@ -199,9 +203,9 @@ const AttributeInfo = union(enum) {
 
     code: CodeAttribute,
 
-    pub fn write(self: Self, writer: std.io.AnyWriter) !void {
-        switch (self) {
-            inline else => |value| try value.write(writer),
+    pub fn write(self: *const Self, writer: std.io.AnyWriter) !void {
+        switch (self.*) {
+            .code => try self.code.write(writer),
         }
     }
 };
@@ -213,39 +217,35 @@ const CodeAttribute = struct {
     attribute_length: u32,
     max_stack: u16 = std.math.maxInt(u16), // TODO: Calculate correctly
     max_locals: u16 = std.math.maxInt(u16), // TODO: Calculate correctly
-    code: []const u8 = undefined,
-    exception_table: []const u8 = undefined,
-    attributes: []AttributeInfo = undefined,
+    code: []u8,
+    exception_table: []const u8 = &[_]u8{},
+    attributes: []AttributeInfo = &[_]AttributeInfo{},
 
-    pub fn init(cp: *ConstantPool, code: anytype) !Self {
-        _ = code;
+    pub fn init(cp: *ConstantPool, code: []u8) !Self {
         const attribute_name_index = try cp.utf8Entry("Code");
         const attribute_length = @sizeOf(u16) // max_stack
             + @sizeOf(u16) // max_locals
             + @sizeOf(u32) // code_length
-            + 1 // code
+            + code.len // code
             + @sizeOf(u16) // exception_table_length
             + @sizeOf(u16); // attributes_count
-
         return .{
             .attribute_name_index = attribute_name_index,
-            .attribute_length = attribute_length,
+            .attribute_length = @intCast(attribute_length),
+            .code = code,
         };
     }
 
     pub fn write(self: *const Self, writer: std.io.AnyWriter) !void {
         try writer.writeInt(u16, self.attribute_name_index, .big);
         try writer.writeInt(u32, self.attribute_length, .big);
-        try writer.writeInt(u16, 0, .big);
-        try writer.writeInt(u16, 1, .big);
-        try writer.writeInt(u32, 1, .big);
-        // try writer.writeInt(u32, @intCast(self.code.len), .big);
-        try writer.writeByte(0xB1);
-        try writer.writeInt(u16, 0, .big);
-        // try writer.writeInt(u16, @intCast(self.exception_table.len), .big);
+        try writer.writeInt(u16, self.max_stack, .big);
+        try writer.writeInt(u16, self.max_locals, .big);
+        try writer.writeInt(u32, @intCast(self.code.len), .big);
+        try writer.writeAll(self.code);
+        try writer.writeInt(u16, @intCast(self.exception_table.len), .big);
         // TODO: write exceptions
-        try writer.writeInt(u16, 0, .big);
-        // try writer.writeInt(u16, @intCast(self.attributes.len), .big);
+        try writer.writeInt(u16, @intCast(self.attributes.len), .big);
         // TODO: write attributes
     }
 };
@@ -324,16 +324,22 @@ const JavaVersion = enum(u16) {
 const ByteCode = struct {
     const Self = @This();
 
-    pub fn init(gpa: std.mem.Allocator) Self {
-        _ = gpa;
-        return Self{};
+    bytes: std.ArrayList(u8),
+
+    pub fn init(gpa: std.mem.Allocator) !Self {
+        return Self{ .bytes = try std.ArrayList(u8).initCapacity(gpa, 10000) };
     }
 
     pub fn deinit(self: *Self) void {
-        _ = self;
+        self.bytes.deinit();
     }
 
-    pub fn @"return"(self: *Self) *Self {
+    pub fn len(self: *const Self) u32 {
+        return @intCast(self.bytes.items.len);
+    }
+
+    pub fn @"return"(self: *Self) !*Self {
+        try self.bytes.append(0xB1);
         return self;
     }
 };
