@@ -34,8 +34,6 @@ pub fn main() !u8 {
     };
 
     const print = std.debug.print;
-    print("BrainfuckProgram program = new BrainfuckProgram();\n", .{});
-    print("Integer headValue, nextIn;\n", .{});
     for (ops) |op| {
         switch (op) {
             .set_zero => print("program.setAtHead(0);", .{}),

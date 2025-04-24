@@ -27,8 +27,6 @@ pub fn main() !void {
     );
     try classfile.write(class_bytes.writer().any());
 
-    // classfile.debugLog();
-
     const file = try std.fs.cwd().createFile(class_name ++ ".class", .{ .truncate = true });
     const bytes = try file.write(class_bytes.items);
     std.debug.print("{d} bytes written\n", .{bytes});
