@@ -8,8 +8,13 @@ pub fn main() !void {
 
     var bytecode = ByteCode.init(gpa);
 
-    const class_bytes = try ClassFile.create(gpa, bytecode
-        .@"return"()
+    const info = try ClassFile.introspect();
+    std.debug.print("{}\n", .{info});
+    // const fields = info.constant_pool_indices.fields;
+    const methods = info.constant_pool_indices.methods;
+    const class_bytes = try ClassFile.create(gpa, info, bytecode
+        .iconst_0()
+        .invokestatic(methods.set_at_head)
         .@"return"()
         .toOwnedSlice());
 
@@ -27,12 +32,19 @@ const ByteCode = struct {
         return Self{ .bytes = std.ArrayList(u8).init(gpa) };
     }
 
-    pub fn len(self: *const Self) u32 {
-        return @intCast(self.bytes.items.len);
-    }
-
     pub fn @"return"(self: *Self) *Self {
         self.bytes.append(0xB1) catch {};
+        return self;
+    }
+
+    pub fn iconst_0(self: *Self) *Self {
+        self.bytes.append(0x3) catch {};
+        return self;
+    }
+
+    pub fn invokestatic(self: *Self, method_ref_index: u16) *Self {
+        self.bytes.append(0xB8) catch {};
+        self.bytes.appendSlice(&std.mem.toBytes(@byteSwap(method_ref_index))) catch {};
         return self;
     }
 
