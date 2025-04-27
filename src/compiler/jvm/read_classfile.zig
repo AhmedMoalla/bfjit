@@ -1,22 +1,22 @@
 const std = @import("std");
-const ClassFile = @import("ClassFile.zig");
+const ClassFile = @import("bfclass.zig");
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const gpa = arena.allocator();
 
-    var bytecode = ByteCode.init(gpa);
-
-    const info = try ClassFile.introspect();
+    const info = ClassFile.info;
     std.debug.print("{}\n", .{info});
     // const fields = info.constant_pool_indices.fields;
     const methods = info.constant_pool_indices.methods;
-    const class_bytes = try ClassFile.create(gpa, info, bytecode
+    const class_bytes = try ClassFile.create(gpa, ByteCode.init(gpa)
         .iconst_0()
         .invokestatic(methods.set_at_head)
         .@"return"()
         .toOwnedSlice());
+
+    std.debug.print("{d} {d}\n", .{ std.math.minInt(i16), std.math.maxInt(i16) });
 
     const file = try std.fs.cwd().createFile("BrainfuckProgram.class", .{ .truncate = true });
     const bytes = try file.write(class_bytes);
@@ -26,10 +26,18 @@ pub fn main() !void {
 const ByteCode = struct {
     const Self = @This();
 
+    gpa: std.mem.Allocator,
     bytes: std.ArrayList(u8),
 
-    pub fn init(gpa: std.mem.Allocator) Self {
-        return Self{ .bytes = std.ArrayList(u8).init(gpa) };
+    pub fn init(gpa: std.mem.Allocator) *Self {
+        const self_ptr = gpa.create(Self) catch unreachable;
+        self_ptr.* = Self{ .gpa = gpa, .bytes = std.ArrayList(u8).init(gpa) };
+        return self_ptr;
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.bytes.deinit();
+        self.gpa.destroy(self);
     }
 
     pub fn @"return"(self: *Self) *Self {

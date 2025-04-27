@@ -16,8 +16,9 @@ pub fn main() !u8 {
         std.log.err(
             \\Usage: bfjit [-i] <input.bf>
             \\Options:
-            \\  -i: use the interpreter instead of the default JIT compilation (optional)
-            \\  -b16, -b32: use 16 or 32 bit cell width instead of the default 8 bit
+            \\  -i              use the interpreter instead of the default JIT compilation (optional) (default=jit)
+            \\  -b16, -b32      16 or 32 bit cell width (default=8-bit)
+            \\  -c <format>     compile program to given format without running it. (values=jvm)
         , .{});
         switch (err) {
             error.InputRequired => std.log.err("no input is provided", .{}),
@@ -32,42 +33,6 @@ pub fn main() !u8 {
         std.log.err("error occured in tokenizer: {s}\n", .{@errorName(err)});
         return 1;
     };
-
-    const print = std.debug.print;
-    for (ops) |op| {
-        switch (op) {
-            .set_zero => print("program.setAtHead(0);", .{}),
-            .inc => |count| print("program.incAtHead({d});", .{count}),
-            .dec => |count| print("program.decAtHead({d});", .{count}),
-            .left => |count| print("program.decHead({d});", .{count}),
-            .right => |count| print("program.incHead({d});", .{count}),
-            .input => |count| {
-                for (0..count) |_| {
-                    print(
-                        \\if ((nextIn = System.in.read()) != -1) {{
-                        \\  program.setAtHead(nextIn);
-                        \\}}
-                    , .{});
-                }
-            },
-            .output => |count| {
-                print(
-                    \\headValue = program.getAtHead();
-                    \\if (headValue != null) {{
-                    \\
-                , .{});
-                for (0..count) |_| {
-                    print("\tSystem.out.print((char)headValue.intValue());\n", .{});
-                }
-                print("}}", .{});
-            },
-            .jump_if_zero => print(
-                \\while ((headValue = program.getAtHead()) != null && headValue != 0) {{
-            , .{}),
-            .jump_if_nonzero => print("}}", .{}),
-        }
-        print("\n", .{});
-    }
 
     std.log.info("JIT: {s}", .{if (args.do_jit) "on" else "off"});
     if (args.do_jit) {

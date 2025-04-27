@@ -175,7 +175,7 @@ test tokenize {
 }
 
 // ============= Utils =============
-fn OpsSlice(args: anytype) type {
+fn OpsArray(args: anytype) type {
     return switch (@typeInfo(@TypeOf(args))) {
         .enum_literal => [1]Op,
         .@"struct" => [args.len]Op,
@@ -183,7 +183,7 @@ fn OpsSlice(args: anytype) type {
     };
 }
 
-fn opsArgs(args: anytype) OpsSlice(args) {
+fn opsArgs(args: anytype) OpsArray(args) {
     return outer: switch (@typeInfo(@TypeOf(args))) {
         .enum_literal => [_]Op{opFromEnumLiteral(args)},
         .@"struct" => {

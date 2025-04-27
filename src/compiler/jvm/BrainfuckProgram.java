@@ -49,6 +49,27 @@ public class BrainfuckProgram {
         }
     }
 
+    public static void outputAtHead(int count) {
+        headValue = getAtHead();
+        if (headValue != null) {
+            for (int i = 0; i < count; i++) {
+                System.out.print((char) headValue.intValue());
+            }
+        }
+    }
+
+    public static void inputAtHead(int count) throws IOException {
+        for (int i = 0; i < count; i++) {
+            if ((nextIn = System.in.read()) != -1) {
+                setAtHead(nextIn);
+            }
+        }
+    }
+
+    public static boolean headNotZero() {
+        return (headValue = getAtHead()) != null && headValue != 0;
+    }
+
     private static Integer headValue, nextIn;
 
     public static void main(String[] args) throws IOException {
@@ -57,13 +78,8 @@ public class BrainfuckProgram {
         decAtHead(1);
         decHead(1);
         incHead(1);
-        if ((nextIn = System.in.read()) != -1) {
-            setAtHead(nextIn);
-        }
-        headValue = getAtHead();
-        if (headValue != null) {
-            System.out.print((char)headValue.intValue());
-        }
-        while ((headValue = getAtHead()) != null && headValue != 0) {}
+        inputAtHead(1);
+        outputAtHead(1);
+        while (headNotZero()) {}
     }
 }

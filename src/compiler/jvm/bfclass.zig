@@ -1,38 +1,49 @@
 const std = @import("std");
 const log = std.log.scoped(.classfile);
 
-const ClassFile = @This();
-
-pub const classfile = @embedFile("./BrainfuckProgram.class");
+const classfile = @embedFile("./BrainfuckProgram.class");
 const public = 0x0001;
 const static = 0x0008;
-const code_attribute_name = "Code";
-const stack_map_table_attribute_name = "StackMapTable";
-const main_method_name = "main";
-const main_method_type = "([Ljava/lang/String;)V";
-// Fields
-const head_value_field_name = "headValue";
-const next_in_field_name = "nextIn";
-// Methods
-const inc_head_method_name = "incHead";
-const dec_head_method_name = "decHead";
-const inc_at_head_method_name = "incAtHead";
-const dec_at_head_method_name = "decAtHead";
-const get_at_head_method_name = "getAtHead";
-const set_at_head_method_name = "setAtHead";
 
-// TODO: Read Classfile bytes to locate the byte index at which we can start writing our own bytecode
-// The position should be at the location of the `Code` attribute of the main method.
-// After the code is pushed the attribute_length field of the `Code` attribute should be incremented by
-// the size of the bytes we inserted.
-// TODO: On the final version, just hardcode the byte index that we can compute using the code above
-// and directly start inserting bytecode from that position. The file should be cut in half at the byte
-// index into a head and a tail. The final byte code should be head + braifuck bytecode + tail.
-// TODO: Don't forget to add all local variables usable in the brainfuck bytecode in the constant pool
-// in advance so I don't have to add them later.
 // TODO: Detect java in path an start classfile with it as parameter
 
-pub fn create(gpa: std.mem.Allocator, info: ClassFileInfo, bytecode: []u8) ![]u8 {
+// TODO: Try to compute these values at compile time using comptime or the build system (maybe generate .zon file at build time ?)
+// For now just run the main function in here to compute them.
+pub const info = ClassFileInfo{
+    .code_location = ByteCodeLocation{
+        .code_start = 1961,
+        .code_end = 1999,
+        .code_length_index = 1957,
+        .attribute_length_index = 1949,
+        .code_attributes_count_index = 2001,
+        .stack_map_table_start = 2003,
+        .stack_map_table_end = 2013,
+    },
+    .constant_pool_indices = ConstantPoolIndices{
+        .fields = ConstantPoolFields{
+            .head_value = 58,
+            .next_in = 83,
+        },
+        .methods = ConstantPoolMethods{
+            .inc_head = 99,
+            .dec_head = 96,
+            .inc_at_head = 90,
+            .dec_at_head = 93,
+            .get_at_head = 54,
+            .set_at_head = 86,
+            .output_at_head = 105,
+            .input_at_head = 102,
+            .head_not_zero = 108,
+        },
+    },
+};
+
+pub fn main() !void {
+    const i = try introspect();
+    std.debug.print("{}\n", .{i});
+}
+
+pub fn create(gpa: std.mem.Allocator, bytecode: []u8) ![]u8 {
     var bytes = try gpa.dupe(u8, classfile);
 
     const location = info.code_location;
@@ -72,6 +83,9 @@ const ConstantPoolMethods = struct {
     dec_at_head: u16,
     get_at_head: u16,
     set_at_head: u16,
+    output_at_head: u16,
+    input_at_head: u16,
+    head_not_zero: u16,
 };
 
 const ConstantPoolFields = struct {
@@ -110,14 +124,12 @@ fn findEntryIndex(utf8: std.StringHashMap(usize), nameandtypes: std.ArrayList(Cp
     return @intCast(ref_index);
 }
 
-pub fn introspect() !ClassFileInfo {
+fn introspect() !ClassFileInfo {
     var location: ByteCodeLocation = undefined;
     var fields: ConstantPoolFields = undefined;
     var methods: ConstantPoolMethods = undefined;
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const gpa = arena.allocator();
+    const gpa = std.heap.page_allocator;
 
     var bytes = std.io.fixedBufferStream(classfile);
     var counting_reader = std.io.countingReader(bytes.reader().any());
@@ -166,16 +178,18 @@ pub fn introspect() !ClassFileInfo {
         }
     }
 
-    fields.head_value = findEntryIndex(utf8, nameandtypes, fieldrefs, head_value_field_name);
-    fields.next_in = findEntryIndex(utf8, nameandtypes, fieldrefs, next_in_field_name);
-    methods.inc_head = findEntryIndex(utf8, nameandtypes, methodrefs, inc_head_method_name);
-    methods.dec_head = findEntryIndex(utf8, nameandtypes, methodrefs, dec_head_method_name);
-    methods.inc_at_head = findEntryIndex(utf8, nameandtypes, methodrefs, inc_at_head_method_name);
-    methods.dec_at_head = findEntryIndex(utf8, nameandtypes, methodrefs, dec_at_head_method_name);
-    methods.get_at_head = findEntryIndex(utf8, nameandtypes, methodrefs, get_at_head_method_name);
-    methods.set_at_head = findEntryIndex(utf8, nameandtypes, methodrefs, set_at_head_method_name);
+    fields.head_value = findEntryIndex(utf8, nameandtypes, fieldrefs, "headValue");
+    fields.next_in = findEntryIndex(utf8, nameandtypes, fieldrefs, "nextIn");
 
-    log.debug("Main Method: Name Index: {d} Type Index: {d}", .{ utf8.get(main_method_name).?, utf8.get(main_method_type).? });
+    methods.inc_head = findEntryIndex(utf8, nameandtypes, methodrefs, "incHead");
+    methods.dec_head = findEntryIndex(utf8, nameandtypes, methodrefs, "decHead");
+    methods.inc_at_head = findEntryIndex(utf8, nameandtypes, methodrefs, "incAtHead");
+    methods.dec_at_head = findEntryIndex(utf8, nameandtypes, methodrefs, "decAtHead");
+    methods.get_at_head = findEntryIndex(utf8, nameandtypes, methodrefs, "getAtHead");
+    methods.set_at_head = findEntryIndex(utf8, nameandtypes, methodrefs, "setAtHead");
+    methods.input_at_head = findEntryIndex(utf8, nameandtypes, methodrefs, "inputAtHead");
+    methods.output_at_head = findEntryIndex(utf8, nameandtypes, methodrefs, "outputAtHead");
+    methods.head_not_zero = findEntryIndex(utf8, nameandtypes, methodrefs, "headNotZero");
 
     const access_flags = try reader.readU16();
     log.debug("Access Flags: {X}", .{access_flags});
@@ -211,13 +225,13 @@ pub fn introspect() !ClassFileInfo {
         const name_index = try reader.readU16();
         const type_index = try reader.readU16();
         const attributes_count = try reader.readU16();
-        if ((method_access_flags & public) != 0 and (method_access_flags & static != 0) and name_index == utf8.get(main_method_name).? and type_index == utf8.get(main_method_type).?) {
+        if ((method_access_flags & public) != 0 and (method_access_flags & static != 0) and name_index == utf8.get("main").? and type_index == utf8.get("([Ljava/lang/String;)V").?) {
             log.debug("Main Method Index: {d}", .{i});
             for (0..attributes_count) |_| {
                 const attribute_name_index = try reader.readU16();
                 const attribute_length = try reader.readU32();
 
-                if (attribute_name_index == utf8.get(code_attribute_name).?) {
+                if (attribute_name_index == utf8.get("Code").?) {
                     location.attribute_length_index = counting_reader.bytes_read - @sizeOf(u32);
                     try reader.skipBytes(4); // max_locals + max_stacks
                     const code_length = try reader.readU32();
@@ -238,7 +252,7 @@ pub fn introspect() !ClassFileInfo {
                         const code_attribute_name_index = try reader.readU16();
                         const code_attribute_length = try reader.readU32();
 
-                        if (code_attribute_name_index == utf8.get(stack_map_table_attribute_name).?) {
+                        if (code_attribute_name_index == utf8.get("StackMapTable").?) {
                             location.stack_map_table_start = counting_reader.bytes_read - @sizeOf(u16) - @sizeOf(u32);
                             location.stack_map_table_end = counting_reader.bytes_read + code_attribute_length;
                         }
