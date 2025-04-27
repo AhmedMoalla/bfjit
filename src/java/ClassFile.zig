@@ -7,6 +7,7 @@ pub const classfile = @embedFile("./BrainfuckProgram.class");
 const public = 0x0001;
 const static = 0x0008;
 const code_attribute_name = "Code";
+const stack_map_table_attribute_name = "StackMapTable";
 const main_method_name = "main";
 const main_method_type = "([Ljava/lang/String;)V";
 // Fields
@@ -35,22 +36,28 @@ pub fn create(gpa: std.mem.Allocator, info: ClassFileInfo, bytecode: []u8) ![]u8
     var bytes = try gpa.dupe(u8, classfile);
 
     const location = info.code_location;
-    const head = try gpa.dupe(u8, bytes[0..location.code_start]);
-    const tail = try gpa.dupe(u8, bytes[location.code_end..]);
 
     const attribute_length_bytes: *const [4]u8 = @ptrCast(bytes[location.attribute_length_index .. location.attribute_length_index + 4]);
     const attribute_length = std.mem.readInt(u32, attribute_length_bytes, .big);
 
     const initial_code_length = location.code_end - location.code_start;
-    const new_attribute_length: u32 = @intCast(attribute_length - initial_code_length + bytecode.len);
-    @memcpy(head[location.attribute_length_index .. location.attribute_length_index + 4], &std.mem.toBytes(@byteSwap(new_attribute_length)));
+    const stack_map_table_length = location.stack_map_table_end - location.stack_map_table_start;
+    const new_attribute_length: u32 = @intCast(attribute_length - initial_code_length + bytecode.len - stack_map_table_length);
+    @memcpy(bytes[location.attribute_length_index .. location.attribute_length_index + 4], &std.mem.toBytes(@byteSwap(new_attribute_length)));
 
     const new_code_length: u32 = @intCast(bytecode.len);
-    @memcpy(head[location.code_length_index .. location.code_length_index + 4], &std.mem.toBytes(@byteSwap(new_code_length)));
-    log.debug("Attribute Length: {d}", .{attribute_length});
-    log.debug("New Code Length: {d}", .{new_code_length});
+    @memcpy(bytes[location.code_length_index .. location.code_length_index + 4], &std.mem.toBytes(@byteSwap(new_code_length)));
 
-    return std.mem.concat(gpa, u8, &[_][]u8{ head, bytecode, tail });
+    const old_code_attributes_count_bytes: *const [2]u8 = @ptrCast(bytes[location.code_attributes_count_index .. location.code_attributes_count_index + 2]);
+    const old_code_attributes_count = std.mem.readInt(u16, old_code_attributes_count_bytes, .big);
+    const new_code_attributes_count = old_code_attributes_count - 1;
+    @memcpy(bytes[location.code_attributes_count_index .. location.code_attributes_count_index + 2], &std.mem.toBytes(@byteSwap(new_code_attributes_count)));
+
+    const head = try gpa.dupe(u8, bytes[0..location.code_start]);
+    const mid = try gpa.dupe(u8, bytes[location.code_end..location.stack_map_table_start]);
+    const tail = try gpa.dupe(u8, bytes[location.stack_map_table_end..]);
+
+    return std.mem.concat(gpa, u8, &[_][]u8{ head, bytecode, mid, tail });
 }
 
 const ConstantPoolIndices = struct {
@@ -77,6 +84,9 @@ const ByteCodeLocation = struct {
     code_end: usize,
     code_length_index: usize,
     attribute_length_index: usize,
+    code_attributes_count_index: usize,
+    stack_map_table_start: usize,
+    stack_map_table_end: usize,
 };
 
 const ClassFileInfo = struct {
@@ -220,10 +230,19 @@ pub fn introspect() !ClassFileInfo {
                     try reader.skipBytes(code_length);
                     const exception_table_length = try reader.readU16();
                     try reader.skipBytes(exception_table_length * 8);
+
+                    location.code_attributes_count_index = counting_reader.bytes_read;
                     const code_attributes_count = try reader.readU16();
+                    log.debug("Code Attributes Count: {d}", .{code_attributes_count});
                     for (0..code_attributes_count) |_| {
-                        try reader.skipBytes(2); // attribute_name_index
+                        const code_attribute_name_index = try reader.readU16();
                         const code_attribute_length = try reader.readU32();
+
+                        if (code_attribute_name_index == utf8.get(stack_map_table_attribute_name).?) {
+                            location.stack_map_table_start = counting_reader.bytes_read - @sizeOf(u16) - @sizeOf(u32);
+                            location.stack_map_table_end = counting_reader.bytes_read + code_attribute_length;
+                        }
+
                         try reader.skipBytes(code_attribute_length);
                     }
                 } else {
